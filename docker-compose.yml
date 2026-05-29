@@ -1,0 +1,11 @@
+services:
+  goboxd:
+    build: .
+    ports:
+      - "8080:8080"
+    privileged: true
+    volumes:
+      - ./configs:/etc/goboxd:ro
+    environment:
+      - GOMAXPROCS=4
+    restart: unless-stopped

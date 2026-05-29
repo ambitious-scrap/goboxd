@@ -1,0 +1,51 @@
+server:
+  port: 8080
+  jail_base: /tmp/goboxd
+  nsjail_path: /usr/local/bin/nsjail
+  output_cap_bytes: 65536
+
+languages:
+  - id: py3
+    name: Python 3
+    source_filename: solution.py
+    run:
+      cmd: /usr/bin/python3
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 5
+        memory_kb: 262144
+        max_processes: 64
+    smoke:
+      cmd: /usr/bin/python3
+      args: ["--version"]
+
+  - id: cpp
+    name: C++
+    source_filename: solution.cpp
+    artifact: solution
+    build:
+      cmd: /usr/bin/g++
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
+      limits:
+        wall_time_s: 30
+        memory_kb: 1048576
+        max_processes: 100
+      flag_allowlist:
+        - "-O0"
+        - "-O1"
+        - "-O2"
+        - "-O3"
+        - "-Wall"
+        - "-Wextra"
+        - "-std=*"
+        - "-g"
+        - "-DNDEBUG"
+    run:
+      cmd: ./{{artifact}}
+      limits:
+        wall_time_s: 5
+        memory_kb: 524288
+        max_processes: 64
+    smoke:
+      cmd: /usr/bin/g++
+      args: ["--version"]
