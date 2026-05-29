@@ -100,20 +100,36 @@ func Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 	return res, nil
 }
 
+// systemBindMounts are read-only bind mounts providing toolchains to the sandbox.
+var systemBindMounts = []string{"/bin", "/usr", "/lib", "/lib64", "/dev", "/etc", "/tmp"}
+
 func buildNsjailArgs(cfg RunConfig) []string {
-	memBytes := int64(cfg.Limits.MemoryKB) * 1024
+	memMiB := int64(cfg.Limits.MemoryKB) / 1024
+	if memMiB < 1 {
+		memMiB = 1
+	}
 	args := []string{
 		"--log", "/dev/null",
 		"--mode", "o",
+		"--chroot", cfg.WorkDir,
+		"--cwd", "/",
 		"--time_limit", strconv.Itoa(cfg.Limits.WallTimeS),
-		"--max_cpus", "1",
-		"--rlimit_as", strconv.FormatInt(memBytes/1024/1024, 10), // MB
-		"--rlimit_fsize", "32", // 32 MB file size limit
-		"--bindmount", cfg.WorkDir + ":/workdir",
-		"--cwd", "/workdir",
+		"--rlimit_as", strconv.FormatInt(memMiB, 10), // MiB
+		"--rlimit_fsize", "100",                       // 100 MiB output cap
+		"--rlimit_nofile", "1000",
+		"--env", "TMP=/",
+		"--env", "TMPDIR=/",
+		"--rw",
 	}
 	if cfg.Limits.MaxProcesses > 0 {
-		args = append(args, "--max_pids", strconv.Itoa(cfg.Limits.MaxProcesses))
+		args = append(args, "--rlimit_nproc", strconv.Itoa(cfg.Limits.MaxProcesses))
+	}
+	for _, dir := range systemBindMounts {
+		args = append(args, "-B", dir)
+	}
+	// Bind /var if it exists (not present on all systems).
+	if _, err := os.Stat("/var"); err == nil {
+		args = append(args, "-B", "/var")
 	}
 	args = append(args, "--")
 	args = append(args, cfg.Cmd)

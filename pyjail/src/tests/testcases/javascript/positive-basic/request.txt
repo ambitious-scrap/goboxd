@@ -1,0 +1,8 @@
+code {
+  full_code: "console.log(\"Hello from JavaScript!\");"
+}
+language: "javascript"
+testcases {
+  input: ""
+  output: "Hello from JavaScript!\n"
+}

@@ -1,0 +1,35 @@
+code {
+  full_code: "import java.util.Scanner;\n\npublic class Factorial {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int n = sc.nextInt();\n        long factorial = 1;\n        for (int i = 1; i <= n; i++) {\n            factorial *= i;\n        }\n        System.out.println(factorial);\n        sc.close();\n    }\n}"
+  filename: "Factorial.java"
+  binary_filename: "Factorial"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+runtime_options {
+  resource_limits {
+    memory_limit: 51200
+    time_limit: 5
+    process_limit: 300
+  }
+}
+testcases {
+  input: "5"
+  output: "120\n"
+}
+testcases {
+  input: "0"
+  output: "1\n"
+}
+testcases {
+  input: "10"
+  output: "3628800\n"
+}
+testcases {
+  input: "15"
+  output: "1307674368000\n"
+}

@@ -1,0 +1,17 @@
+code {
+  full_code: "public class Solution { public static void main(String[] args) { System.out.print(\"extra args test\"); } }"
+  binary_filename: "Solution"
+  filename: "Solution.java"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+  extra_args: "-Xlint:all"
+}
+testcases {
+  input: ""
+  output: "extra args test"
+}

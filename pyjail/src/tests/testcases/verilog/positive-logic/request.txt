@@ -1,0 +1,14 @@
+code {
+  full_code: "module logic_test;\nreg [3:0] value;\ninitial begin\n  value = 4'b1010;\n  if (value > 4'b0111)\n    $display(\"Value %b is greater than 7\", value);\n  else\n    $display(\"Value %b is less than or equal to 7\", value);\n  \n  case (value[1:0])\n    2'b00: $display(\"Last two bits: 00\");\n    2'b01: $display(\"Last two bits: 01\");\n    2'b10: $display(\"Last two bits: 10\");\n    2'b11: $display(\"Last two bits: 11\");\n  endcase\n  $finish;\nend\nendmodule"
+}
+language: "verilog"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+testcases {
+  input: ""
+  output: "Value 1010 is greater than 7\nLast two bits: 10\n"
+}

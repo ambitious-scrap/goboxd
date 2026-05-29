@@ -1,0 +1,8 @@
+code {
+  full_code: "#!/bin/bash\nread text\necho \"Original: $text\"\necho \"Uppercase: ${text^^}\"\necho \"Length: ${#text}\""
+}
+language: "bash"
+testcases {
+  input: "hello world"
+  output: "Original: hello world\nUppercase: HELLO WORLD\nLength: 11\n"
+}

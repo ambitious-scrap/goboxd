@@ -1,0 +1,14 @@
+code {
+  full_code: "#!/bin/bash\nfor i in {1..100}; do\n  echo \"Processing: $i\" > /dev/null\ndone\necho \"Bash time test completed\""
+}
+language: "bash"
+runtime_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+testcases {
+  input: ""
+  output: "Bash time test completed\n"
+}

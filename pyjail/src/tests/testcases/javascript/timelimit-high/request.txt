@@ -1,0 +1,13 @@
+code {
+  full_code: "setTimeout(() => {\n  console.log(\"Time test completed\");\n}, 100);"
+}
+language: "javascript"
+runtime_options {
+  resource_limits {
+    time_limit: 9
+  }
+}
+testcases {
+  input: ""
+  output: "Time test completed\n"
+}

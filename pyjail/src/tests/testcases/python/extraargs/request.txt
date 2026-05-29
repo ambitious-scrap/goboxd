@@ -1,0 +1,15 @@
+code {
+  full_code: "print('extra args test')"
+}
+language: "py"
+compilation_options {
+  resource_limits {
+    memory_limit: 1024
+    time_limit: 2
+  }
+  extra_args: "-O"
+}
+testcases {
+  input: ""
+  output: "extra args test\n"
+}

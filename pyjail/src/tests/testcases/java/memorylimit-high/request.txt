@@ -1,0 +1,16 @@
+code {
+  full_code: "import java.util.*;\npublic class Solution {\n  public static void main(String[] args) {\n    List<Integer> data = new ArrayList<>();\n    for(int i = 0; i < 1000; i++) data.add(i);\n    System.out.println(\"Memory test completed\");\n  }\n}"
+  binary_filename: "Solution"
+  filename: "Solution.java"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+testcases {
+  input: ""
+  output: "Memory test completed\n"
+}

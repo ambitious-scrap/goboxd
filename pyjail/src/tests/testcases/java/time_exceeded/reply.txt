@@ -1,0 +1,13 @@
+overall_status: TIME_LIMIT_EXCEEDED
+compilation_result {
+  status: OK
+  output: ""
+  error: ""
+  nsjail_output: ""
+}
+test_case_results {
+  status: TIME_LIMIT_EXCEEDED
+  actual_output: ""
+  error: ""
+  nsjail_output: ""
+}

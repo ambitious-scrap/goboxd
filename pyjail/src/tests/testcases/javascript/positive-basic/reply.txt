@@ -1,0 +1,10 @@
+overall_status: OK
+compilation_result {
+  status: OK
+}
+test_case_results {
+  status: OK
+  actual_output: "Hello from JavaScript!\n"
+  error: ""
+  nsjail_output: ""
+}

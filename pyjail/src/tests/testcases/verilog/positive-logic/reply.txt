@@ -1,0 +1,13 @@
+overall_status: OK
+compilation_result {
+  status: OK
+  output: ""
+  error: ""
+  nsjail_output: ""
+}
+test_case_results {
+  status: OK
+  actual_output: "Value 1010 is greater than 7\nLast two bits: 10\n"
+  error: ""
+  nsjail_output: ""
+}

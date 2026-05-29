@@ -1,0 +1,13 @@
+overall_status: OK
+compilation_result {
+  status: OK
+  output: ""
+  error: ""
+  nsjail_output: ""
+}
+test_case_results {
+  status: OK
+  actual_output: "Memory test completed\n"
+  error: ""
+  nsjail_output: ""
+}

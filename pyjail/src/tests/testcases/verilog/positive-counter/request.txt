@@ -1,0 +1,14 @@
+code {
+  full_code: "module counter;\nparameter N = 5;\ninteger i;\ninitial begin\n  for (i = 0; i < N; i = i + 1) begin\n    $display(\"Count: %d\", i);\n  end\n  $finish;\nend\nendmodule"
+}
+language: "verilog"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+testcases {
+  input: ""
+  output: "Count:           0\nCount:           1\nCount:           2\nCount:           3\nCount:           4\n"
+}

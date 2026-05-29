@@ -1,0 +1,15 @@
+code {
+  full_code: "#include <iostream>\n#include <vector>\nint main() {\n  std::vector<int> v = {1, 2, 3, 4, 5};\n  for(auto& x : v) std::cout << x << \" \";\n  return 0;\n}"
+}
+language: "cpp"
+compilation_options {
+  resource_limits {
+    memory_limit: 1024
+    time_limit: 3
+  }
+  extra_args: "--std=c++11"
+}
+testcases {
+  input: ""
+  output: "1 2 3 4 5 "
+}

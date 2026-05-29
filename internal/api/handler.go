@@ -61,15 +61,17 @@ func (s *Server) Router() http.Handler {
 // --- /run ---
 
 type runRequest struct {
-	Language string          `json:"language"`
-	Source   string          `json:"source"`
-	Flags    []string        `json:"flags"`
-	Tests    []testCaseInput `json:"tests"`
+	Language         string          `json:"language"`
+	Source           string          `json:"source"`
+	SourceFilename   string          `json:"source_filename"`
+	ArtifactFilename string          `json:"artifact_filename"`
+	Flags            []string        `json:"flags"`
+	Tests            []testCaseInput `json:"tests"`
 }
 
 type testCaseInput struct {
 	Stdin          string `json:"stdin"`
-	ExpectedOutput string `json:"expected_output"`
+	ExpectedOutput string `json:"expected_stdout"`
 }
 
 type runResponse struct {
@@ -125,9 +127,32 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateFilename(lang.SourceFilename); err != nil {
+	// Resolve filenames — Java-style languages take them from the request.
+	sourceFilename := lang.SourceFilename
+	artifactFilename := lang.Artifact
+	if lang.SourceFilenameStrategy == "from_request" {
+		if req.SourceFilename == "" {
+			writeError(w, http.StatusBadRequest, "missing_field", "source_filename is required for "+lang.ID)
+			return
+		}
+		sourceFilename = req.SourceFilename
+	}
+	if lang.ArtifactFilenameStrategy == "from_request" {
+		if req.ArtifactFilename == "" {
+			writeError(w, http.StatusBadRequest, "missing_field", "artifact_filename is required for "+lang.ID)
+			return
+		}
+		artifactFilename = req.ArtifactFilename
+	}
+	if err := validateFilename(sourceFilename); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_filename", err.Error())
 		return
+	}
+	if artifactFilename != "" && lang.ArtifactFilenameStrategy == "from_request" {
+		if err := validateFilename(artifactFilename); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_filename", "artifact_filename: "+err.Error())
+			return
+		}
 	}
 
 	if lang.Build != nil && len(req.Flags) > 0 {
@@ -159,13 +184,15 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	_ = limitOverride
 
 	result, err := s.runner.Execute(ctx, runner.RunRequest{
-		Language:   lang,
-		Source:     req.Source,
-		Flags:      req.Flags,
-		Tests:      tcs,
-		JailBase:   s.cfg.Server.JailBase,
-		NsjailPath: s.cfg.Server.NsjailPath,
-		OutputCap:  s.cfg.Server.OutputCapBytes,
+		Language:         lang,
+		Source:           req.Source,
+		SourceFilename:   sourceFilename,
+		ArtifactFilename: artifactFilename,
+		Flags:            req.Flags,
+		Tests:            tcs,
+		JailBase:         s.cfg.Server.JailBase,
+		NsjailPath:       s.cfg.Server.NsjailPath,
+		OutputCap:        s.cfg.Server.OutputCapBytes,
 	})
 	if err != nil {
 		obs.TotalErrors.Add(1)
@@ -185,7 +212,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		Tests:  make([]testOut, len(result.Tests)),
 	}
 
-	if lang.Build != nil || result.BuildStatus != "" {
+	if lang.Build != nil {
 		bs := result.BuildStatus
 		if bs == "" {
 			bs = status.BuildOK
@@ -293,11 +320,11 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		},
 		Languages: langs,
 		Stats: map[string]any{
-			"total_requests":       obs.TotalRequests.Load(),
-			"in_flight":            obs.InFlight.Load(),
-			"total_errors":         obs.TotalErrors.Load(),
-			"disk_free_bytes_jail": diskFree,
-			"uptime_s":             int64(time.Since(startTime).Seconds()),
+			"jobs_total":              obs.TotalRequests.Load(),
+			"in_flight_jobs":          obs.InFlight.Load(),
+			"jobs_failed_internal":    obs.TotalErrors.Load(),
+			"disk_free_bytes_jail_dir": diskFree,
+			"uptime_s":                int64(time.Since(startTime).Seconds()),
 		},
 	})
 }

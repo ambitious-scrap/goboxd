@@ -1,0 +1,8 @@
+code {
+  full_code: "import sys\ndata = [1, 2, 3] * 100\nfor i in range(3):\n    print \"Processing:\", data[i]"
+}
+language: "py"
+testcases {
+  input: ""
+  output: "Processing: 1\nProcessing: 2\nProcessing: 3\n"
+}

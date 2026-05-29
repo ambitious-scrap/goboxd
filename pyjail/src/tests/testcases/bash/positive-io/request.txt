@@ -1,0 +1,8 @@
+code {
+  full_code: "#!/bin/bash\nread n\nfor ((i=1; i<=n; i++)); do\n  echo \"Line $i\"\ndone"
+}
+language: "bash"
+testcases {
+  input: "3"
+  output: "Line 1\nLine 2\nLine 3\n"
+}

@@ -1,0 +1,23 @@
+code {
+  full_code: "import java.util.Scanner;\n\npublic class ErrorRuntime {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int a = sc.nextInt();\n        int b = sc.nextInt();\n        \n        // CRITICAL BUG: Division by zero should cause RUNTIME_ERROR\n        // but server returns OK. Java exits with code 1 on uncaught\n        // exceptions but server doesn't detect it properly.\n        int result = a / b;\n        System.out.println(\"Result: \" + result);\n    }\n}"
+  filename: "ErrorRuntime.java"
+  binary_filename: "ErrorRuntime"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+runtime_options {
+  resource_limits {
+    memory_limit: 51200
+    time_limit: 5
+    process_limit: 300
+  }
+}
+testcases {
+  input: "10 0"
+  output: ""
+}

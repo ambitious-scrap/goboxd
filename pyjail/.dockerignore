@@ -1,0 +1,95 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info
+dist
+build
+.eggs
+.pytest_cache
+htmlcov
+.coverage
+.coverage.*
+*.cover
+*.log
+.mypy_cache
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+docker-compose*.yaml
+.dockerignore
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# Tests
+tests/
+test_*.py
+*_test.py
+pytest.ini
+
+# CI/CD
+.circleci/
+.travis.yml
+cloudbuild.yaml
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Kubernetes
+k8s/
+k8s.txt
+
+# Build artifacts
+*.tar.gz
+!db_backups.tar.gz
+*.zip
+
+# Nsjail specific
+nsjail/
+*.nsjail
+
+# Development files
+Makefile
+.env
+.env.*
+*.example
+
+# Logs
+logs/
+
+# Cache
+.cache/
+*.cache

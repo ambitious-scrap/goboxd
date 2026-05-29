@@ -1,0 +1,23 @@
+code {
+  full_code: "import java.util.*;\n\nclass Pair<T, U> {\n    private T first;\n    private U second;\n    \n    public Pair(T first, U second) {\n        this.first = first;\n        this.second = second;\n    }\n    \n    public T getFirst() { return first; }\n    public U getSecond() { return second; }\n    \n    @Override\n    public String toString() {\n        return \"(\" + first + \", \" + second + \")\";\n    }\n}\n\npublic class ComplexGenerics {\n    public static <T extends Comparable<T>> T findMax(List<T> list) {\n        if (list.isEmpty()) return null;\n        T max = list.get(0);\n        for (T item : list) {\n            if (item.compareTo(max) > 0) {\n                max = item;\n            }\n        }\n        return max;\n    }\n    \n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int n = sc.nextInt();\n        \n        List<Integer> numbers = new ArrayList<>();\n        List<Pair<Integer, String>> pairs = new ArrayList<>();\n        \n        for (int i = 0; i < n; i++) {\n            int num = sc.nextInt();\n            numbers.add(num);\n            pairs.add(new Pair<>(i, \"Value_\" + num));\n        }\n        \n        Integer maxNumber = findMax(numbers);\n        System.out.println(\"Max number: \" + maxNumber);\n        System.out.println(\"Pairs: \" + pairs);\n        \n        sc.close();\n    }\n}"
+  filename: "ComplexGenerics.java"
+  binary_filename: "ComplexGenerics"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+runtime_options {
+  resource_limits {
+    memory_limit: 51200
+    time_limit: 5
+    process_limit: 300
+  }
+}
+testcases {
+  input: "4 10 20 5 15"
+  output: "Max number: 20\nPairs: [(0, Value_10), (1, Value_20), (2, Value_5), (3, Value_15)]\n"
+}

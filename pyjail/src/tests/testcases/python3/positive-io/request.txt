@@ -1,0 +1,8 @@
+code {
+  full_code: "n = int(input())\nfor i in range(n):\n    print(f\"Line {i+1}\")"
+}
+language: "py3"
+testcases {
+  input: "3"
+  output: "Line 1\nLine 2\nLine 3\n"
+}

@@ -1,0 +1,14 @@
+code {
+  full_code: "#include <stdio.h>\nint main() { printf(\"Hello from C!\"); return 0; }"
+}
+language: "c"
+compilation_options {
+  resource_limits {
+    memory_limit: 1024
+    time_limit: 3
+  }
+}
+testcases {
+  input: ""
+  output: "Hello from C!"
+}

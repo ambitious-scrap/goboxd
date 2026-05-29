@@ -12,23 +12,23 @@ languages:
       cmd: /usr/bin/python3
       args: ["{{source}}"]
       limits:
-        wall_time_s: 5
-        memory_kb: 262144
-        max_processes: 64
+        wall_time_s: 9
+        memory_kb: 102400
+        max_processes: 100
     smoke:
       cmd: /usr/bin/python3
       args: ["--version"]
 
-  - id: cpp
-    name: C++
-    source_filename: solution.cpp
-    artifact: solution
+  - id: c
+    name: C
+    source_filename: solution.c
+    artifact: a.out
     build:
-      cmd: /usr/bin/g++
+      cmd: /usr/bin/gcc
       args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
       limits:
-        wall_time_s: 30
-        memory_kb: 1048576
+        wall_time_s: 10
+        memory_kb: 10240
         max_processes: 100
       flag_allowlist:
         - "-O0"
@@ -39,13 +39,127 @@ languages:
         - "-Wextra"
         - "-std=*"
         - "-g"
-        - "-DNDEBUG"
+        - "-lm"
     run:
       cmd: ./{{artifact}}
+      args: []
       limits:
         wall_time_s: 5
-        memory_kb: 524288
+        memory_kb: 1024
+        max_processes: 64
+    smoke:
+      cmd: /usr/bin/gcc
+      args: ["--version"]
+
+  - id: cpp
+    name: C++
+    source_filename: solution.cpp
+    artifact: a.out
+    build:
+      cmd: /usr/bin/g++
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
+      limits:
+        wall_time_s: 10
+        memory_kb: 10240
+        max_processes: 100
+      flag_allowlist:
+        - "-O0"
+        - "-O1"
+        - "-O2"
+        - "-O3"
+        - "-Wall"
+        - "-Wextra"
+        - "-std=*"
+        - "-g"
+    run:
+      cmd: ./{{artifact}}
+      args: []
+      limits:
+        wall_time_s: 5
+        memory_kb: 1024
         max_processes: 64
     smoke:
       cmd: /usr/bin/g++
       args: ["--version"]
+
+  - id: java
+    name: Java
+    source_filename: "{{source_filename}}"
+    artifact: "{{artifact_filename}}"
+    source_filename_strategy: from_request
+    artifact_filename_strategy: from_request
+    build:
+      cmd: /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
+      args: ["{{flags}}", "{{source}}"]
+      limits:
+        wall_time_s: 15
+        memory_kb: 102400
+        max_processes: 100
+      flag_allowlist:
+        - "-Xlint"
+        - "-Xlint:*"
+        - "-encoding"
+        - "UTF-8"
+    run:
+      cmd: /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+      args: ["{{artifact}}"]
+      limits:
+        wall_time_s: 10
+        memory_kb: 102400
+        max_processes: 300
+    smoke:
+      cmd: /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+      args: ["--version"]
+
+  - id: bash
+    name: Bash
+    source_filename: solution.sh
+    run:
+      cmd: /bin/bash
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 9
+        memory_kb: 102400
+        max_processes: 100
+    smoke:
+      cmd: /bin/bash
+      args: ["--version"]
+
+  - id: javascript
+    name: JavaScript (Node)
+    source_filename: solution.js
+    run:
+      cmd: /usr/bin/node
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 9
+        memory_kb: 102400
+        max_processes: 100
+    smoke:
+      cmd: /usr/bin/node
+      args: ["--version"]
+
+  - id: verilog
+    name: Verilog
+    source_filename: solution.v
+    artifact: a.out
+    build:
+      cmd: /usr/bin/iverilog
+      args: ["{{flags}}", "{{source}}"]
+      limits:
+        wall_time_s: 10
+        memory_kb: 102400
+        max_processes: 100
+      flag_allowlist:
+        - "-g2012"
+        - "-Wall"
+    run:
+      cmd: ./{{artifact}}
+      args: []
+      limits:
+        wall_time_s: 9
+        memory_kb: 102400
+        max_processes: 64
+    smoke:
+      cmd: /usr/bin/iverilog
+      args: ["-V"]

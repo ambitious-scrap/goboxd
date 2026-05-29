@@ -1,0 +1,10 @@
+overall_status: OK
+compilation_result {
+  status: OK
+}
+test_case_results {
+  status: OK
+  actual_output: "JavaScript advanced test\nSum: 15\n"
+  error: ""
+  nsjail_output: ""
+}

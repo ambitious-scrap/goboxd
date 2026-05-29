@@ -1,0 +1,10 @@
+overall_status: OK
+compilation_result {
+  status: OK
+}
+test_case_results {
+  status: OK
+  actual_output: "Processing: 1\nProcessing: 2\nProcessing: 3\n"
+  error: ""
+  nsjail_output: ""
+}

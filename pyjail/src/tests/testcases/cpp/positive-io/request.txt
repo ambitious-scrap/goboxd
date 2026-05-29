@@ -1,0 +1,14 @@
+code {
+  full_code: "#include <iostream>\nint main() {\n  int n;\n  std::cin >> n;\n  for(int i = 1; i <= n; i++) {\n    std::cout << \"Line \" << i << std::endl;\n  }\n  return 0;\n}"
+}
+language: "cpp"
+compilation_options {
+  resource_limits {
+    memory_limit: 1024
+    time_limit: 3
+  }
+}
+testcases {
+  input: "3"
+  output: "Line 1\nLine 2\nLine 3\n"
+}

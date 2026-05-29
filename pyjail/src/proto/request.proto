@@ -1,0 +1,86 @@
+package nsjail_programming_server;
+
+import "proto/common.proto";
+
+// service ProgramAssignmentServer {
+//   rpc Run (CodeRequest) returns (CodeReply) {}
+//   rpc GetDefaultSettings(ServerDetailsMessage) returns (ServerDetailsReply) {}
+// }
+
+message ServerDetailsMessage {
+  required string token = 1;
+}
+
+message CodeRequest {
+  message Code {
+    required string full_code = 1;
+    optional string filename = 2;
+    optional string binary_filename = 3;
+  }
+
+  message CompilationOptions {
+    optional ResourceLimits resource_limits = 1;
+    repeated string extra_args = 2;
+  }
+
+  message RuntimeOptions {
+    optional ResourceLimits resource_limits = 1;
+    repeated string extra_args = 4;
+  }
+
+  message TestCase {
+    required string input = 1;
+    required string output = 2;
+    // Adding an optional parameter `directory` for internal use
+    // It will be overriden by the server if provided in the request.
+    optional string directory = 3;
+  }
+
+  required Code code = 1;
+  required string language = 2;
+  optional CompilationOptions compilation_options = 3;
+  optional RuntimeOptions runtime_options = 4;
+  repeated TestCase testcases = 5;
+  optional string evaluation_script = 6;
+  optional string evaluation_script_lang = 7;
+  optional string randomized_question = 8;
+}
+
+message CodeReply {
+
+  enum Status {
+      OK = 0;
+      COMPILATION_ERROR = 1;
+      WRONG_ANSWER = 2;
+      TIME_LIMIT_EXCEEDED = 3;
+      RUNTIME_ERROR = 4;
+      MEMORY_LIMIT_EXCEEDED = 5;
+      PRESENTATION_ERROR = 6;
+      NOT_RUN = 7;
+      ENVIRONMENT_INITIALIZATION_ERROR = 8;
+    }
+
+  message CompilationResult {
+    required Status status = 1;
+    optional string output = 2;
+    optional string error = 3;
+    optional string nsjail_output = 4;
+  }
+
+  message TestCaseResult {
+    required Status status = 1;
+    optional string actual_output = 2;
+    optional string error = 4;
+    optional string nsjail_output = 5;
+  }
+
+  required Status overall_status = 1;
+  required CompilationResult compilation_result = 2;
+  repeated TestCaseResult test_case_results = 3;
+  optional string evaluation_result_json = 4;
+  optional string nsjail_output = 5;
+}
+
+message ServerDetailsReply {
+  required string server_details = 1;
+}

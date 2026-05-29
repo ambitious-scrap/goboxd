@@ -45,13 +45,15 @@ type TestResult struct {
 
 // RunRequest bundles everything needed to execute a submission.
 type RunRequest struct {
-	Language   *config.Language
-	Source     string
-	Flags      []string
-	Tests      []TestCase
-	JailBase   string
-	NsjailPath string
-	OutputCap  int
+	Language         *config.Language
+	Source           string
+	SourceFilename   string // overrides lang.SourceFilename when strategy=from_request
+	ArtifactFilename string // overrides lang.Artifact when strategy=from_request
+	Flags            []string
+	Tests            []TestCase
+	JailBase         string
+	NsjailPath       string
+	OutputCap        int
 }
 
 // RunResult is the fully computed outcome of a submission.
@@ -93,7 +95,11 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 	}
 	defer jail.Cleanup(jailPath)
 
-	sourcePath := filepath.Join(jailPath, req.Language.SourceFilename)
+	srcFilename := req.Language.SourceFilename
+	if req.SourceFilename != "" {
+		srcFilename = req.SourceFilename
+	}
+	sourcePath := filepath.Join(jailPath, srcFilename)
 	if err := os.WriteFile(sourcePath, []byte(req.Source), 0644); err != nil {
 		return nil, fmt.Errorf("write source: %w", err)
 	}
@@ -124,12 +130,12 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 		res.BuildStderr = br.Stderr
 
 		if br.ExitCode != 0 {
-			res.BuildStatus = status.BuildFailed
+			res.BuildStatus = status.BuildFailed  // build.status = "failed"
 			res.Tests = make([]TestResult, len(req.Tests))
 			for i := range res.Tests {
 				res.Tests[i].Status = status.NotExecuted
 			}
-			res.TopStatus = status.BuildFailed
+			res.TopStatus = status.TopBuildFailed  // top-level = "build_failed"
 			return res, nil
 		}
 		res.BuildStatus = status.BuildOK
@@ -185,12 +191,20 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 }
 
 func placeholderVars(req RunRequest, jailPath string) map[string]string {
+	src := req.Language.SourceFilename
+	if req.SourceFilename != "" {
+		src = req.SourceFilename
+	}
 	vars := map[string]string{
-		"source":  req.Language.SourceFilename,
+		"source":  src,
 		"workdir": jailPath,
 	}
-	if req.Language.Artifact != "" {
-		vars["artifact"] = req.Language.Artifact
+	artifact := req.Language.Artifact
+	if req.ArtifactFilename != "" {
+		artifact = req.ArtifactFilename
+	}
+	if artifact != "" {
+		vars["artifact"] = artifact
 	}
 	return vars
 }

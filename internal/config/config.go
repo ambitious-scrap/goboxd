@@ -15,13 +15,15 @@ type ServerConfig struct {
 }
 
 type Language struct {
-	ID             string     `yaml:"id"`
-	Name           string     `yaml:"name"`
-	SourceFilename string     `yaml:"source_filename"`
-	Artifact       string     `yaml:"artifact,omitempty"`
-	Build          *BuildStep `yaml:"build,omitempty"`
-	Run            RunStep    `yaml:"run"`
-	Smoke          SmokeProbe `yaml:"smoke"`
+	ID                       string     `yaml:"id"`
+	Name                     string     `yaml:"name"`
+	SourceFilename           string     `yaml:"source_filename"`
+	Artifact                 string     `yaml:"artifact,omitempty"`
+	SourceFilenameStrategy   string     `yaml:"source_filename_strategy,omitempty"`
+	ArtifactFilenameStrategy string     `yaml:"artifact_filename_strategy,omitempty"`
+	Build                    *BuildStep `yaml:"build,omitempty"`
+	Run                      RunStep    `yaml:"run"`
+	Smoke                    SmokeProbe `yaml:"smoke"`
 }
 
 type BuildStep struct {

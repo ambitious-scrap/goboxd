@@ -39,8 +39,8 @@ func TestTopLevel(t *testing.T) {
 		tests       []string
 		want        string
 	}{
-		{status.BuildFailed, nil, status.BuildFailed},
-		{status.BuildFailed, []string{status.NotExecuted}, status.BuildFailed},
+		{status.BuildFailed, nil, status.TopBuildFailed},
+		{status.BuildFailed, []string{status.NotExecuted}, status.TopBuildFailed},
 		{status.BuildOK, []string{status.Accepted, status.Accepted}, status.Accepted},
 		{status.BuildOK, []string{status.Accepted, status.WrongOutput}, status.WrongOutput},
 		{status.BuildOK, []string{status.TimeExceeded, status.WrongOutput}, status.TimeExceeded},

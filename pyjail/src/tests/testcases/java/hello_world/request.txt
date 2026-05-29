@@ -1,0 +1,23 @@
+code {
+  full_code: "public class HelloWorld {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}"
+  filename: "HelloWorld.java"
+  binary_filename: "HelloWorld"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+runtime_options {
+  resource_limits {
+    memory_limit: 51200
+    time_limit: 5
+    process_limit: 300
+  }
+}
+testcases {
+  input: ""
+  output: "Hello, World!\n"
+}

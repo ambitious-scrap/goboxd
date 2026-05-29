@@ -205,10 +205,10 @@ func TestCpp_BuildFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.BuildStatus != status.BuildFailed {
-		t.Errorf("build status = %q, want build_failed", res.BuildStatus)
+		t.Errorf("build status = %q, want %q", res.BuildStatus, status.BuildFailed)
 	}
-	if res.TopStatus != status.BuildFailed {
-		t.Errorf("top status = %q, want build_failed", res.TopStatus)
+	if res.TopStatus != status.TopBuildFailed {
+		t.Errorf("top status = %q, want %q", res.TopStatus, status.TopBuildFailed)
 	}
 	for i, tr := range res.Tests {
 		if tr.Status != status.NotExecuted {

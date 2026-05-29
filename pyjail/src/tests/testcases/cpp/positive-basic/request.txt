@@ -1,0 +1,14 @@
+code {
+  full_code: "#include <iostream>\nint main() { std::cout << \"Basic C++ test\"; return 0; }"
+}
+language: "cpp"
+compilation_options {
+  resource_limits {
+    memory_limit: 1024
+    time_limit: 3
+  }
+}
+testcases {
+  input: ""
+  output: "Basic C++ test"
+}

@@ -1,0 +1,14 @@
+code {
+  full_code: "module test;\nreg [31:0] data [0:999];\ninteger i;\ninitial begin\n  for(i = 0; i < 1000; i = i + 1) data[i] = i;\n  $display(\"Memory test completed\");\n  $finish;\nend\nendmodule"
+}
+language: "verilog"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+testcases {
+  input: ""
+  output: "Memory test completed\n"
+}

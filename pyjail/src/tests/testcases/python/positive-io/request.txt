@@ -1,0 +1,14 @@
+code {
+  full_code: "# Python program that handles input and produces output\n# This is a positive test case for I/O operations\n\n# Read all input lines\nimport sys\nlines = []\nfor line in sys.stdin:\n    lines.append(line.rstrip())\n\n# Process the input\nfor i, line in enumerate(lines, 1):\n    words = line.split()\n    word_count = len(words)\n    char_count = len(line)\n    print(\"Line \" + str(i) + \": \" + str(word_count) + \" words, \" + str(char_count) + \" characters\")\n    print(\"Content: \" + line)\n\n# Calculate total statistics\ntotal_lines = len(lines)\ntotal_chars = sum(len(line) for line in lines)\ntotal_words = sum(len(line.split()) for line in lines)\n\nprint(\"\\nSummary:\")\nprint(\"Total lines: \" + str(total_lines))\nprint(\"Total words: \" + str(total_words))\nprint(\"Total characters: \" + str(total_chars))"
+}
+language: "py"
+compilation_options {
+  resource_limits {
+    memory_limit: 1024
+    time_limit: 5
+  }
+}
+testcases {
+  input: "Hello World\nPython Programming\nTest Case"
+  output: "Line 1: 2 words, 11 characters\nContent: Hello World\nLine 2: 2 words, 18 characters\nContent: Python Programming\nLine 3: 2 words, 9 characters\nContent: Test Case\n\nSummary:\nTotal lines: 3\nTotal words: 6\nTotal characters: 38\n"
+}

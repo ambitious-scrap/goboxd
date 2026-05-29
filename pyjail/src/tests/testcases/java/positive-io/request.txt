@@ -1,0 +1,16 @@
+code {
+  full_code: "import java.util.Scanner;\npublic class Solution {\n  public static void main(String[] args) {\n    Scanner sc = new Scanner(System.in);\n    int n = sc.nextInt();\n    for(int i = 1; i <= n; i++) {\n      System.out.println(\"Line \" + i);\n    }\n  }\n}"
+  binary_filename: "Solution"
+  filename: "Solution.java"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+testcases {
+  input: "3"
+  output: "Line 1\nLine 2\nLine 3\n"
+}

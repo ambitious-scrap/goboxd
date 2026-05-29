@@ -1,0 +1,23 @@
+code {
+  full_code: "import java.util.*;\n\npublic class CompilationXlint {\n    public static void main(String[] args) {\n        // Using proper generics to avoid warnings\n        List<Object> list = new ArrayList<Object>();\n        list.add(\"Hello\");\n        list.add(123);\n        \n        for (Object item : list) {\n            System.out.println(item);\n        }\n    }\n}"
+  filename: "CompilationXlint.java"
+  binary_filename: "CompilationXlint"
+}
+language: "java"
+compilation_options {
+  resource_limits {
+    memory_limit: 102400
+    time_limit: 6
+  }
+}
+runtime_options {
+  resource_limits {
+    memory_limit: 51200
+    time_limit: 5
+    process_limit: 300
+  }
+}
+testcases {
+  input: ""
+  output: "Hello\n123\n"
+}

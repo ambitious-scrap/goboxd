@@ -1,0 +1,45 @@
+package nsjail_programming_server;
+
+import "proto/common.proto";
+
+message CompilationSettings {
+  required string nsjail_args = 1;
+}
+
+message RuntimeSettings {
+  optional string nsjail_args = 1;
+}
+
+message CommonSettings {
+  optional string nsjail_args = 1;
+}
+
+message PrivateSettings {
+  required string base_dir = 1;
+  required string nsjail_args = 2;
+  optional CompilationSettings default_compilation_settings = 3;
+  optional RuntimeSettings default_runtime_settings = 4;
+  optional CommonSettings default_common_settings = 5;
+}
+
+message PublicSettings {
+  required string nsjail_path = 1;
+  optional CompilationSettings default_compilation_settings = 2;
+  optional RuntimeSettings default_runtime_settings = 3;
+  optional CommonSettings default_common_settings = 4;
+  repeated LanguageDependentSettings language_settings = 5;
+}
+
+message LanguageDependentSettings {
+
+  message CommandOptions {
+    required string path = 1;
+    required string args = 2;
+    required ResourceLimits resource_limits = 3;
+  }
+  required string language = 1;
+  required string filename = 2;
+  optional string binary_filename = 3;
+  optional CommandOptions compilation_options = 4;
+  required CommandOptions runtime_options = 5;
+}

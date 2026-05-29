@@ -1,0 +1,9 @@
+overall_status: OK
+compilation_result {
+  status: OK
+}
+test_case_results {
+  status: OK
+  actual_output: "Line 1: 2 words, 11 characters\nContent: Hello World\nLine 2: 2 words, 18 characters\nContent: Python Programming\nLine 3: 2 words, 9 characters\nContent: Test Case\n\nSummary:\nTotal lines: 3\nTotal words: 6\nTotal characters: 38\n"
+  error: ""
+}

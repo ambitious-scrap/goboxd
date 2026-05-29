@@ -5,15 +5,21 @@ import (
 )
 
 const (
-	Accepted               = "accepted"
-	WrongOutput            = "wrong_output"
+	Accepted                 = "accepted"
+	WrongOutput              = "wrong_output"
 	OutputWhitespaceMismatch = "output_whitespace_mismatch"
-	TimeExceeded           = "time_exceeded"
-	MemoryExceeded         = "memory_exceeded"
-	RuntimeError           = "runtime_error"
-	BuildFailed            = "build_failed"
-	NotExecuted            = "not_executed"
-	BuildOK                = "ok"
+	TimeExceeded             = "time_exceeded"
+	MemoryExceeded           = "memory_exceeded"
+	RuntimeError             = "runtime_error"
+	InternalError            = "internal_error"
+	NotExecuted              = "not_executed"
+
+	// Build-scoped statuses.
+	BuildOK     = "ok"
+	BuildFailed = "failed" // build.status value when compilation fails
+
+	// Top-level status when build fails.
+	TopBuildFailed = "build_failed"
 )
 
 // CompareOutput compares actual output against expected, returning the
@@ -31,7 +37,7 @@ func CompareOutput(got, expected string) string {
 // TopLevel computes the top-level run status from build + per-test statuses.
 func TopLevel(buildStatus string, testStatuses []string) string {
 	if buildStatus == BuildFailed {
-		return BuildFailed
+		return TopBuildFailed
 	}
 	for _, s := range testStatuses {
 		if s != Accepted {

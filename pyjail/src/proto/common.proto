@@ -1,0 +1,7 @@
+package nsjail_programming_server;
+
+message ResourceLimits {
+  optional int32 time_limit = 3;
+  optional int32 process_limit = 4;
+  optional int32 memory_limit = 5;
+}
