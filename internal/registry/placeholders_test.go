@@ -1,10 +1,50 @@
 package registry_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/ambitious-scrap/goboxd/internal/registry"
 )
+
+func TestExpandFlags(t *testing.T) {
+	cases := []struct {
+		args  []string
+		flags []string
+		want  []string
+	}{
+		// placeholder present, flags provided
+		{
+			args:  []string{"{{flags}}", "-o", "solution", "solution.cpp"},
+			flags: []string{"-O2", "-Wall"},
+			want:  []string{"-O2", "-Wall", "-o", "solution", "solution.cpp"},
+		},
+		// placeholder present, no flags — placeholder removed
+		{
+			args:  []string{"{{flags}}", "-o", "solution", "solution.cpp"},
+			flags: nil,
+			want:  []string{"-o", "solution", "solution.cpp"},
+		},
+		// no placeholder, flags prepended
+		{
+			args:  []string{"-o", "solution", "solution.cpp"},
+			flags: []string{"-O2"},
+			want:  []string{"-O2", "-o", "solution", "solution.cpp"},
+		},
+		// no placeholder, no flags — unchanged
+		{
+			args:  []string{"-o", "solution"},
+			flags: nil,
+			want:  []string{"-o", "solution"},
+		},
+	}
+	for _, tc := range cases {
+		got := registry.ExpandFlags(tc.args, tc.flags)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ExpandFlags(%v, %v) = %v, want %v", tc.args, tc.flags, got, tc.want)
+		}
+	}
+}
 
 func TestResolve(t *testing.T) {
 	cases := []struct {

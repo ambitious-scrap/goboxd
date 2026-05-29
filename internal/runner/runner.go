@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ambitious-scrap/goboxd/internal/config"
@@ -106,8 +105,7 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 	// Build phase (compiled languages only).
 	if req.Language.Build != nil {
 		args := registry.Resolve(req.Language.Build.Args, vars)
-		// Inject validated flags at the {{flags}} position if not already in args.
-		args = injectFlags(args, req.Flags, vars)
+		args = registry.ExpandFlags(args, req.Flags)
 
 		start := time.Now()
 		br, err := r.sb.Run(ctx, sandbox.RunConfig{
@@ -194,26 +192,5 @@ func placeholderVars(req RunRequest, jailPath string) map[string]string {
 	if req.Language.Artifact != "" {
 		vars["artifact"] = req.Language.Artifact
 	}
-	if len(req.Flags) > 0 {
-		vars["flags"] = strings.Join(req.Flags, " ")
-	}
 	return vars
-}
-
-// injectFlags handles the case where {{flags}} appears as a standalone arg
-// (already resolved by Resolve). If no {{flags}} placeholder was in the
-// template, flags are prepended.
-func injectFlags(args []string, flags []string, vars map[string]string) []string {
-	// If Resolve already expanded {{flags}}, nothing more to do.
-	if len(flags) == 0 {
-		return args
-	}
-	flagStr := strings.Join(flags, " ")
-	for _, a := range args {
-		if a == flagStr {
-			return args
-		}
-	}
-	// No placeholder was resolved — prepend flags.
-	return append(flags, args...)
 }
