@@ -1,12 +1,16 @@
 # Stage 1: build nsjail from source (submodule pinned to tag 3.4)
 FROM ubuntu:22.04 AS nsjail-builder
 
+# Build dependencies for nsjail. Versions are intentionally unpinned: these are
+# the base image's own packages, and exact patch pins break across architectures
+# and over time as Ubuntu ships security updates (e.g. git's patch version
+# differs between amd64 and arm64). Reproducibility comes from the FROM tag.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bison=2:3.8.2+dfsg-1build1 \
-    flex=2.6.4-8build2 \
-    g++=4:11.2.0-1ubuntu1 \
-    gcc=4:11.2.0-1ubuntu1 \
-    git=1:2.34.1-1ubuntu1.11 \
+    bison \
+    flex \
+    g++ \
+    gcc \
+    git \
     libcap-dev \
     libnl-route-3-dev \
     libprotobuf-dev \
@@ -21,7 +25,7 @@ WORKDIR /build/nsjail
 RUN make -j"$(nproc)" && strip nsjail
 
 # Stage 2: build the Go binary
-FROM golang:1.22-bookworm AS go-builder
+FROM golang:1.26-bookworm AS go-builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -45,11 +49,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libprotobuf23 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install language toolchains
+# Install language toolchains. One script per language; adding a language means
+# dropping a script here and a YAML block in configs/ — no Go changes.
 COPY scripts/lang_install/ /tmp/lang_install/
 RUN apt-get update \
     && bash /tmp/lang_install/py3.sh \
+    && bash /tmp/lang_install/c.sh \
     && bash /tmp/lang_install/cpp.sh \
+    && bash /tmp/lang_install/java.sh \
+    && bash /tmp/lang_install/bash.sh \
+    && bash /tmp/lang_install/javascript.sh \
+    && bash /tmp/lang_install/verilog.sh \
     && rm -rf /var/lib/apt/lists/* /tmp/lang_install
 
 # Install nsjail and goboxd binaries
