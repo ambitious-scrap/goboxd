@@ -16,8 +16,8 @@ Execute a submission against one or more test cases.
   "source": "print(input())",
   "flags": [],
   "tests": [
-    {"stdin": "hello", "expected_output": "hello\n"},
-    {"stdin": "world", "expected_output": "world\n"}
+    {"stdin": "hello", "expected_stdout": "hello\n"},
+    {"stdin": "world", "expected_stdout": "world\n"}
   ]
 }
 ```
@@ -29,7 +29,7 @@ Execute a submission against one or more test cases.
 | `flags` | string[] | no | Compiler flags; validated against per-language allowlist |
 | `tests` | object[] | yes | At least one required |
 | `tests[].stdin` | string | no | Passed to the program's stdin |
-| `tests[].expected_output` | string | yes | Compared against stdout |
+| `tests[].expected_stdout` | string | yes | Compared against stdout |
 
 ### Response — 200
 
