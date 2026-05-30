@@ -116,7 +116,7 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 		start := time.Now()
 		br, err := r.sb.Run(ctx, sandbox.RunConfig{
 			WorkDir:   jailPath,
-			Cmd:       req.Language.Build.Cmd,
+			Cmd:       registry.ResolveOne(req.Language.Build.Cmd, vars),
 			Args:      args,
 			Limits:    req.Language.Build.Limits,
 			OutputCap: r.outputCap,
@@ -146,12 +146,13 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 	testStatuses := make([]string, len(req.Tests))
 
 	runArgs := registry.Resolve(req.Language.Run.Args, vars)
+	runCmd := registry.ResolveOne(req.Language.Run.Cmd, vars)
 
 	for i, tc := range req.Tests {
 		start := time.Now()
 		rr, err := r.sb.Run(ctx, sandbox.RunConfig{
 			WorkDir:   jailPath,
-			Cmd:       req.Language.Run.Cmd,
+			Cmd:       runCmd,
 			Args:      runArgs,
 			Stdin:     tc.Stdin,
 			Limits:    req.Language.Run.Limits,

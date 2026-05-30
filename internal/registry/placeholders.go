@@ -16,6 +16,16 @@ func Resolve(args []string, vars map[string]string) []string {
 	return out
 }
 
+// ResolveOne replaces {{key}} placeholders in a single string. Used for the
+// run/build command, e.g. "./{{artifact}}" -> "./a.out". Unknown placeholders
+// are left as-is.
+func ResolveOne(s string, vars map[string]string) string {
+	for k, v := range vars {
+		s = strings.ReplaceAll(s, "{{"+k+"}}", v)
+	}
+	return s
+}
+
 // ExpandFlags replaces a standalone {{flags}} element in args with the
 // individual flag strings. If no {{flags}} element is present, flags are
 // prepended to args. Call after Resolve so other placeholders are already
