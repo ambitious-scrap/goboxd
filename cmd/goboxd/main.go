@@ -12,11 +12,16 @@ import (
 	"syscall"
 	"time"
 
+	// Sets GOMAXPROCS from the container's cgroup CPU quota at startup so the Go
+	// scheduler doesn't oversubscribe when the host has more cores than the quota.
+	_ "go.uber.org/automaxprocs"
+
 	"github.com/ambitious-scrap/goboxd/internal/api"
 	"github.com/ambitious-scrap/goboxd/internal/jail"
 	"github.com/ambitious-scrap/goboxd/internal/config"
 	"github.com/ambitious-scrap/goboxd/internal/registry"
 	"github.com/ambitious-scrap/goboxd/internal/runner"
+	"github.com/ambitious-scrap/goboxd/internal/sandbox"
 )
 
 // Injected by -ldflags at build time.
@@ -49,6 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 	jail.SweepOrphans(cfg.Server.JailBase, 10*time.Minute)
+	sandbox.SweepOrphanCgroups(10 * time.Minute)
 
 	reg := registry.New(cfg.Languages)
 
