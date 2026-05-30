@@ -28,7 +28,7 @@ languages:
       args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
       limits:
         wall_time_s: 10
-        memory_kb: 10240
+        memory_kb: 1048576
         max_processes: 100
       flag_allowlist:
         - "-O0"
@@ -45,7 +45,7 @@ languages:
       args: []
       limits:
         wall_time_s: 5
-        memory_kb: 1024
+        memory_kb: 262144
         max_processes: 64
     smoke:
       cmd: /usr/bin/gcc
@@ -60,7 +60,7 @@ languages:
       args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
       limits:
         wall_time_s: 10
-        memory_kb: 10240
+        memory_kb: 1048576
         max_processes: 100
       flag_allowlist:
         - "-O0"
@@ -76,7 +76,7 @@ languages:
       args: []
       limits:
         wall_time_s: 5
-        memory_kb: 1024
+        memory_kb: 262144
         max_processes: 64
     smoke:
       cmd: /usr/bin/g++
@@ -89,11 +89,11 @@ languages:
     source_filename_strategy: from_request
     artifact_filename_strategy: from_request
     build:
-      cmd: /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
+      cmd: /usr/bin/javac
       args: ["{{flags}}", "{{source}}"]
       limits:
         wall_time_s: 15
-        memory_kb: 102400
+        memory_kb: 524288
         max_processes: 100
       flag_allowlist:
         - "-Xlint"
@@ -101,14 +101,14 @@ languages:
         - "-encoding"
         - "UTF-8"
     run:
-      cmd: /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+      cmd: /usr/bin/java
       args: ["{{artifact}}"]
       limits:
         wall_time_s: 10
-        memory_kb: 102400
+        memory_kb: 524288
         max_processes: 300
     smoke:
-      cmd: /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+      cmd: /usr/bin/java
       args: ["--version"]
 
   - id: bash
@@ -133,7 +133,7 @@ languages:
       args: ["{{source}}"]
       limits:
         wall_time_s: 9
-        memory_kb: 102400
+        memory_kb: 262144
         max_processes: 100
     smoke:
       cmd: /usr/bin/node
@@ -145,7 +145,7 @@ languages:
     artifact: a.out
     build:
       cmd: /usr/bin/iverilog
-      args: ["{{flags}}", "{{source}}"]
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
       limits:
         wall_time_s: 10
         memory_kb: 102400
@@ -154,8 +154,10 @@ languages:
         - "-g2012"
         - "-Wall"
     run:
-      cmd: ./{{artifact}}
-      args: []
+      # iverilog emits a vvp bytecode program, not a native executable; it is run
+      # by the vvp runtime, not invoked directly.
+      cmd: /usr/bin/vvp
+      args: ["{{artifact}}"]
       limits:
         wall_time_s: 9
         memory_kb: 102400
