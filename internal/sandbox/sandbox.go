@@ -193,13 +193,22 @@ type limitedWriter struct {
 }
 
 func (lw *limitedWriter) Write(p []byte) (int, error) {
+	// Always report the full input length back to the caller. The child's stdout
+	// is copied here by os/exec's io.Copy; returning n < len(p) with a nil error
+	// makes io.Copy fail with io.ErrShortWrite, which would surface as a sandbox
+	// exec error (HTTP 500) instead of a cleanly truncated 200. We swallow the
+	// overflow and record truncation instead.
 	if lw.remaining <= 0 {
 		lw.truncated = true
 		return len(p), nil
 	}
 	if int64(len(p)) > lw.remaining {
 		lw.truncated = true
-		p = p[:lw.remaining]
+		if _, err := lw.w.Write(p[:lw.remaining]); err != nil {
+			return 0, err
+		}
+		lw.remaining = 0
+		return len(p), nil
 	}
 	n, err := lw.w.Write(p)
 	lw.remaining -= int64(n)
