@@ -1,6 +1,6 @@
 # Benchmarks
 
-Latency for `POST /run` running a Python 3 "Hello World" against one test case, at increasing concurrency. Numbers below are from a clean `docker run` of the image.
+Latency for `POST /run` running a Python 3 "Hello World" against one test case, at increasing concurrency. Numbers below are from a clean `docker run` of image `goboxd:1f9b07a`, captured 2026-05-31. Raw `hey` output is the source for the table; re-running regenerates it.
 
 Reproduce with `scripts/bench.sh` (uses [`hey`](https://github.com/rakyll/hey)):
 
@@ -29,18 +29,18 @@ Caveat: this is an arm64 dev VM with virtualized I/O. Absolute latencies will di
 
 | Concurrency | Requests/sec | p50 | p95 | p99 | Errors |
 |-------------|--------------|----------|----------|----------|--------|
-| 1   | 43  | 22.4 ms  | 32.7 ms  | 42.8 ms   | 0 / 500 |
-| 10  | 102 | 91.8 ms  | 146.8 ms | 193.8 ms  | 0 / 500 |
-| 50  | 107 | 452.6 ms | 592.1 ms | 616.4 ms  | 0 / 500 |
-| 100 | 101 | 906.0 ms | 1198 ms  | 1219 ms   | 0 / 500 |
+| 1   | 86  | 11.7 ms  | 17.9 ms  | 21.6 ms  | 0 / 500 |
+| 10  | 268 | 36.3 ms  | 52.3 ms  | 59.8 ms  | 0 / 500 |
+| 50  | 315 | 154.1 ms | 184.5 ms | 199.1 ms | 0 / 500 |
+| 100 | 306 | 318.8 ms | 367.8 ms | 375.3 ms | 0 / 500 |
 
 All requests returned `200`. No `5xx`, no dropped requests.
 
 ## Reading the numbers
 
-- **Throughput plateaus around 105 req/s** past concurrency 10. The VM has 4 CPUs and the default concurrency semaphore is `runtime.NumCPU()` = 4, so only 4 requests execute at once; the rest queue. Each request does real per-request work: jail dir create, a dedicated cgroup v2 create + `memory.max` write + teardown, nsjail namespace/chroot setup, and interpreter start. That fixed cost — not Python itself — sets the ceiling.
-- **Latency scales roughly linearly with concurrency above the core count.** At concurrency 100 on 4 CPUs, requests queue on the semaphore, so p50 ≈ 100/4 × single-request time (~22 ms) ≈ 0.9 s, which matches. This is the semaphore doing its job — requests wait for a slot instead of overcommitting the box and failing.
-- **No errors at any level.** Under load the service queues on slot acquisition rather than returning `503`, which is the intended backpressure behavior.
+- **Throughput plateaus around 310 req/s** past concurrency 50. The VM has 4 CPUs and the default concurrency semaphore is `runtime.NumCPU()` = 4, so only 4 requests execute at once; the rest queue. A single request takes ~12 ms, so the theoretical ceiling is ~4 / 0.012 ≈ 330 req/s; the observed 315 at concurrency 50 sits just under that. Each request does real per-request work: jail dir create, a dedicated cgroup v2 create + `memory.max` write + teardown, nsjail namespace/chroot setup, and interpreter start.
+- **Latency scales roughly linearly with concurrency above the core count.** At concurrency 100 on 4 CPUs, requests queue on the semaphore, so p50 ≈ 100/4 × single-request time (~12 ms) ≈ 300 ms, which matches the observed 319 ms. This is the semaphore doing its job — requests wait for a slot instead of overcommitting the box and failing.
+- **No errors at any level.** All 2000 requests across the four levels returned `200`. Under load the service queues on slot acquisition rather than returning `503`, which is the intended backpressure behavior.
 - **Per-request cgroup lifecycle is part of the cost.** Memory accounting (`memory_exceeded`, `memory_peak_kb`) is paid for here: each request creates and tears down a cgroup. On a faster filesystem (bare-metal amd64 vs this virtualized arm64 VM) this overhead shrinks. The flat error rate and linear latency scaling are the portable findings; absolute throughput will be higher on judging hardware.
 
 ## Notes
