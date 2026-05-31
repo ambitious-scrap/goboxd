@@ -1,0 +1,8 @@
+# Build output
+/bin/
+
+# Locally-installed tooling (e.g. hey for benchmarks) — not vendored
+/.tools/
+
+# Private AI development journals — kept local, not version-controlled
+/docs/ai/
