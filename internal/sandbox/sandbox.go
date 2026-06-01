@@ -17,23 +17,40 @@ import (
 
 const truncationMarker = "\n...[truncated]"
 
-// Version returns nsjail's version string by invoking `nsjail --version`. nsjail
-// prints its banner to stderr and may exit non-zero, so the exit code is ignored
-// and the first non-empty line of combined output is returned.
-func Version(ctx context.Context, nsjailPath string) (string, error) {
+// Probe verifies that the nsjail binary is present and executable. nsjail has no
+// --version flag and embeds no version string, so the only thing we can check at
+// runtime is that it runs and prints its usage banner. `nsjail --help` exits 0
+// and writes a "Usage:" line; anything else (missing binary, non-zero exit, no
+// usage output) is reported as an error.
+//
+// The version itself is not discoverable from the binary; it is pinned by the
+// build (the nsjail submodule is checked out at tag 3.4) and surfaced separately
+// via NsjailVersion.
+func Probe(ctx context.Context, nsjailPath string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, nsjailPath, "--version")
+	cmd := exec.CommandContext(ctx, nsjailPath, "--help")
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	_ = cmd.Run()
-	for _, line := range strings.Split(buf.String(), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line, nil
-		}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("nsjail --help: %w", err)
 	}
-	return "", fmt.Errorf("nsjail --version produced no output")
+	if !strings.Contains(buf.String(), "Usage:") {
+		return fmt.Errorf("nsjail --help: unexpected output (binary may be wrong)")
+	}
+	return nil
+}
+
+// NsjailVersion returns the pinned nsjail version. nsjail cannot report its own
+// version, so the build injects it via the GOBOXD_NSJAIL_VERSION env var (set in
+// the Dockerfile from the submodule tag). Falls back to "unknown" outside the
+// image.
+func NsjailVersion() string {
+	if v := strings.TrimSpace(os.Getenv("GOBOXD_NSJAIL_VERSION")); v != "" {
+		return v
+	}
+	return "unknown"
 }
 
 // RunConfig holds everything needed to execute one command in nsjail.

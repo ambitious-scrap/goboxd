@@ -62,6 +62,12 @@ COPY --from=nsjail-builder /build/nsjail/nsjail /usr/local/bin/nsjail
 COPY --from=go-builder /goboxd /usr/local/bin/goboxd
 COPY configs/ /etc/goboxd/
 
+# nsjail cannot report its own version; pin it here so /info and /readyz can
+# surface it. Matches the submodule tag (external/nsjail @ 3.4). Override with
+# --build-arg NSJAIL_VERSION=... if the submodule is bumped.
+ARG NSJAIL_VERSION=3.4
+ENV GOBOXD_NSJAIL_VERSION=${NSJAIL_VERSION}
+
 RUN mkdir -p /tmp/goboxd
 
 EXPOSE 8080

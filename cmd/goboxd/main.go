@@ -74,13 +74,13 @@ func main() {
 	r := runner.New(cfg.Server.NsjailPath, cfg.Server.JailBase, cfg.Server.OutputCapBytes)
 
 	nsjailInfo := api.NsjailInfo{}
-	if v, err := sandbox.Version(ctx, cfg.Server.NsjailPath); err != nil {
+	if err := sandbox.Probe(ctx, cfg.Server.NsjailPath); err != nil {
 		nsjailInfo.Error = err.Error()
 		slog.Warn("nsjail probe failed", "err", err)
 	} else {
 		nsjailInfo.OK = true
-		nsjailInfo.Version = v
-		slog.Info("nsjail ready", "version", v)
+		nsjailInfo.Version = sandbox.NsjailVersion()
+		slog.Info("nsjail ready", "version", nsjailInfo.Version)
 	}
 
 	cgroupsEnabled := sandbox.MemoryAccountingAvailable()
