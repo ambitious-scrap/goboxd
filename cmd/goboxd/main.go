@@ -16,12 +16,12 @@ import (
 	// scheduler doesn't oversubscribe when the host has more cores than the quota.
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/ambitious-scrap/goboxd/internal/api"
-	"github.com/ambitious-scrap/goboxd/internal/config"
-	"github.com/ambitious-scrap/goboxd/internal/jail"
-	"github.com/ambitious-scrap/goboxd/internal/registry"
-	"github.com/ambitious-scrap/goboxd/internal/runner"
-	"github.com/ambitious-scrap/goboxd/internal/sandbox"
+	"github.com/thesouldev/goboxd/internal/api"
+	"github.com/thesouldev/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/jail"
+	"github.com/thesouldev/goboxd/internal/registry"
+	"github.com/thesouldev/goboxd/internal/runner"
+	"github.com/thesouldev/goboxd/internal/sandbox"
 )
 
 // Injected by -ldflags at build time.

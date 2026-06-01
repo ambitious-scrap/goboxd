@@ -3,7 +3,7 @@ package status_test
 import (
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/status"
+	"github.com/thesouldev/goboxd/internal/status"
 )
 
 func TestCompareOutput(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/config"
 )
 
 // contains reports whether args contains a "--flag value" pair in order.

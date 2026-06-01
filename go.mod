@@ -1,4 +1,4 @@
-module github.com/ambitious-scrap/goboxd
+module github.com/thesouldev/goboxd
 
 go 1.26.3
 

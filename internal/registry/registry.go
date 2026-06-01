@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ambitious-scrap/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/config"
 )
 
 // SmokeResult holds the outcome of a language smoke probe.

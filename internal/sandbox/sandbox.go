@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ambitious-scrap/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/config"
 )
 
 const truncationMarker = "\n...[truncated]"

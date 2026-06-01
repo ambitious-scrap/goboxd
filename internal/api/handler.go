@@ -10,13 +10,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/ambitious-scrap/goboxd/internal/config"
-	"github.com/ambitious-scrap/goboxd/internal/flags"
-	"github.com/ambitious-scrap/goboxd/internal/limits"
-	"github.com/ambitious-scrap/goboxd/internal/obs"
-	"github.com/ambitious-scrap/goboxd/internal/registry"
-	"github.com/ambitious-scrap/goboxd/internal/runner"
-	"github.com/ambitious-scrap/goboxd/internal/status"
+	"github.com/thesouldev/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/flags"
+	"github.com/thesouldev/goboxd/internal/limits"
+	"github.com/thesouldev/goboxd/internal/obs"
+	"github.com/thesouldev/goboxd/internal/registry"
+	"github.com/thesouldev/goboxd/internal/runner"
+	"github.com/thesouldev/goboxd/internal/status"
 )
 
 // Server holds all dependencies for the HTTP layer.

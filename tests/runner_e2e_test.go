@@ -5,10 +5,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/config"
-	"github.com/ambitious-scrap/goboxd/internal/runner"
-	"github.com/ambitious-scrap/goboxd/internal/sandbox"
-	"github.com/ambitious-scrap/goboxd/internal/status"
+	"github.com/thesouldev/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/runner"
+	"github.com/thesouldev/goboxd/internal/sandbox"
+	"github.com/thesouldev/goboxd/internal/status"
 )
 
 // fakeSandbox replays scripted results in order, one per Run call.

@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/config"
 )
 
 const validYAML = `

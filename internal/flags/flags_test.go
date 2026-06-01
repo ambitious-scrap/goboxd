@@ -3,7 +3,7 @@ package flags_test
 import (
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/flags"
+	"github.com/thesouldev/goboxd/internal/flags"
 )
 
 var allowlist = []string{"-O0", "-O1", "-O2", "-O3", "-Wall", "-Wextra", "-std=*", "-g"}

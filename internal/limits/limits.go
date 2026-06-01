@@ -1,6 +1,6 @@
 package limits
 
-import "github.com/ambitious-scrap/goboxd/internal/config"
+import "github.com/thesouldev/goboxd/internal/config"
 
 // RequestOverride holds optional per-request limit overrides.
 // Nil pointer fields mean "use the language default".

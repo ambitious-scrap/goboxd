@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ambitious-scrap/goboxd/internal/jail"
+	"github.com/thesouldev/goboxd/internal/jail"
 )
 
 var nameRe = regexp.MustCompile(`^\d+_\d+_[0-9a-f]{16}$`)

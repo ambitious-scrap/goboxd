@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/registry"
+	"github.com/thesouldev/goboxd/internal/registry"
 )
 
 func TestExpandFlags(t *testing.T) {

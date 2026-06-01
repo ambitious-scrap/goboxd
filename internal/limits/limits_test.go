@@ -3,8 +3,8 @@ package limits_test
 import (
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/config"
-	"github.com/ambitious-scrap/goboxd/internal/limits"
+	"github.com/thesouldev/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/limits"
 )
 
 func intp(v int) *int { return &v }

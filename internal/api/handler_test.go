@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ambitious-scrap/goboxd/internal/api"
-	"github.com/ambitious-scrap/goboxd/internal/config"
-	"github.com/ambitious-scrap/goboxd/internal/registry"
-	"github.com/ambitious-scrap/goboxd/internal/runner"
-	"github.com/ambitious-scrap/goboxd/internal/sandbox"
+	"github.com/thesouldev/goboxd/internal/api"
+	"github.com/thesouldev/goboxd/internal/config"
+	"github.com/thesouldev/goboxd/internal/registry"
+	"github.com/thesouldev/goboxd/internal/runner"
+	"github.com/thesouldev/goboxd/internal/sandbox"
 )
 
 // fakeSandbox returns scripted results, one per Run call.
