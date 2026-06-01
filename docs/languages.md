@@ -18,21 +18,25 @@ Languages are defined in `configs/languages.yaml`. Adding a language requires a 
 
 Limits are per-language in the YAML config. Request-level overrides are clamped to the configured maximums.
 
+Values below are the defaults from `configs/languages.yaml`. A request may override
+`wall_time_s`, `memory_kb`, and `max_processes` per step via the `build`/`run` objects;
+an override replaces the default for that field (missing fields fall back to the default).
+
 | Language | Build wall time | Build memory | Run wall time | Run memory |
 |----------|----------------|--------------|---------------|------------|
 | py3 | — | — | 9s | 100 MiB |
-| c | 10s | 10 MiB | 5s | 1 MiB |
-| cpp | 10s | 10 MiB | 5s | 1 MiB |
-| java | 15s | 100 MiB | 9s | 100 MiB |
+| c | 10s | 1 GiB | 5s | 256 MiB |
+| cpp | 10s | 1 GiB | 5s | 256 MiB |
+| java | 15s | 512 MiB | 10s | 512 MiB |
 | bash | — | — | 9s | 100 MiB |
-| javascript | — | — | 9s | 100 MiB |
-| verilog | 9s | 100 MiB | 9s | 100 MiB |
+| javascript | — | — | 9s | 256 MiB |
+| verilog | 10s | 100 MiB | 9s | 100 MiB |
 
 ## Java notes
 
-Java requires the source file to be named after the public class. Requests for `java` must include `source_filename` in the request body (e.g., `"source_filename": "HelloWorld.java"`). The API returns `400 missing_field` if `source_filename` is absent for a `java` submission.
+Java requires the source file to be named after the public class. Requests for `java` must include **both** `source_filename` and `artifact_filename` in the request body (e.g., `"source_filename": "HelloWorld.java"`, `"artifact_filename": "HelloWorld"`). Both use `..._strategy: from_request` in the config. The API returns `400 missing_field` if either is absent for a `java` submission.
 
-The compiled `.class` file name is derived from the source filename (strip `.java`, keep the base). The run command uses this derived artifact name.
+`artifact_filename` is the class name passed to `java` at run time (the `.java`/`.class` base). The caller supplies it explicitly rather than the server deriving it.
 
 ## Adding a language
 

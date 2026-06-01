@@ -18,7 +18,7 @@ curl -X POST http://localhost:8080/run \
     "language": "py3",
     "source": "print(input())",
     "tests": [
-      {"stdin": "hello", "expected_output": "hello\n"}
+      {"stdin": "hello", "expected_stdout": "hello\n"}
     ]
   }'
 ```

@@ -15,7 +15,7 @@ internal/runner/    execution orchestration (build → run tests → map status)
 internal/sandbox/   nsjail process management, output capture, OOM/timeout detection
 internal/jail/      jail directory lifecycle (create, cleanup, orphan sweep)
 internal/flags/     per-language compiler flag allow-listing
-internal/limits/    request-level limit override merging with clamping
+internal/limits/    request-level limit override merging (partial override, default fallback)
 internal/status/    output comparison and top-level status computation
 internal/obs/       structured JSON logging and atomic stats counters
 ```
@@ -50,16 +50,15 @@ Adding a language requires:
 ## Sandbox isolation
 
 Each execution runs inside nsjail with:
-- A unique read-write workdir bind-mounted at `/workdir`
+- A unique read-write workdir as the chroot (`--chroot <workdir> --cwd /`), with the host toolchain dirs bind-mounted read-only
 - Wall time limit (`--time_limit`)
-- Address space limit (`--rlimit_as`)
-- Process count limit (`--max_pids`)
-- File size limit (`--rlimit_fsize`)
-- A single CPU (`--max_cpus 1`)
+- Memory limit via cgroup v2 `memory.max` (`--use_cgroupv2 --cgroup_mem_max`); `--rlimit_as` is used only as a fallback when no cgroup mount is available
+- Process count limit (`--rlimit_nproc`)
+- File size limit (`--rlimit_fsize`, 100 MiB)
 
-stdout and stderr are captured through `io.LimitReader` with a hard byte cap; excess output is truncated with a `...[truncated]` marker.
+stdout and stderr are captured through a custom `limitedWriter` (`internal/sandbox/sandbox.go`) with a hard byte cap; excess output is discarded and a `...[truncated]` marker is appended.
 
-OOM kills are detected via cgroup v2 `memory.events`. Timeouts are inferred from wall time vs the configured limit. All other non-zero exits map to `runtime_error`.
+OOM kills are detected via cgroup v2 `memory.events`. Timeouts are detected from nsjail's wall-time kill. All other non-zero exits map to `runtime_error`.
 
 ## Concurrency model
 
@@ -72,8 +71,8 @@ Per-request overhead is dominated by nsjail's namespace and filesystem setup. Th
 ## Status computation
 
 Output comparison is a pure function:
-1. Exact match → `accepted`
-2. Whitespace-normalized match → `output_whitespace_mismatch`
+1. Exact byte match → `accepted`
+2. Equal after trimming leading/trailing whitespace from the whole output → `output_whitespace_mismatch` (internal whitespace differences are not normalized; matches the reference implementation)
 3. Otherwise → `wrong_output`
 
 Top-level status is the first non-`accepted` test status in order, or `build_failed` if the build step failed. All test statuses are `not_executed` when build fails.
