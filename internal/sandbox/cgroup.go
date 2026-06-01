@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -53,14 +54,25 @@ func setupCgroup(id string, memoryKB int) *cgroup {
 		// memory.max enforces the hard limit on this cgroup and its descendants
 		// (nsjail creates a child cgroup underneath). memory.swap.max=0 makes the
 		// limit count real memory, so a process can't dodge the cap via swap.
-		_ = os.WriteFile(filepath.Join(path, "memory.max"), []byte(limit), 0o644)
-		_ = os.WriteFile(filepath.Join(path, "memory.swap.max"), []byte("0"), 0o644)
+		if err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(limit), 0o644); err != nil {
+			slog.Warn("cgroup: write memory.max failed; memory cap may not be enforced", "path", path, "err", err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "memory.swap.max"), []byte("0"), 0o644); err != nil {
+			slog.Warn("cgroup: write memory.swap.max failed; swap not disabled", "path", path, "err", err)
+		}
 	}
 
 	cg.path = path
 	cg.ok = true
 	return cg
 }
+
+// MemoryAccountingAvailable reports whether the cgroup v2 memory controller is
+// usable for per-run accounting (memory.max + OOM/peak readout). When false the
+// sandbox falls back to rlimit address-space enforcement with no OOM detection.
+// Idempotent: the underlying probe runs at most once. Call at startup to surface
+// the capability in /info and to warm the one-time setup before the first run.
+func MemoryAccountingAvailable() bool { return enableMemoryController() }
 
 // enableMemoryController ensures cgroupParent exists and that the memory
 // controller is delegated into it so child cgroups can set memory.max.
