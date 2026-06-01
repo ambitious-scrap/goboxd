@@ -26,9 +26,9 @@ Each requested flag is matched against a per-language allowlist. Matching suppor
 
 ### 4. Request size limits
 
-**Location:** `internal/api/handler.go:run` (body), `internal/sandbox/sandbox.go` (`--rlimit_fsize`)
+**Location:** `internal/api/handler.go:run` (body + source), `internal/sandbox/sandbox.go` (`--rlimit_fsize`)
 
-`http.MaxBytesReader` caps the request body at `MaxBodyBytes` (default 256 KiB). nsjail's `--rlimit_fsize` caps file writes inside the sandbox at 100 MiB (`internal/sandbox/sandbox.go`, `--rlimit_fsize 100`). Both layers are required: the HTTP cap prevents large payloads from reaching the runner; the nsjail cap prevents a submitted program from filling the host disk through its output files.
+`http.MaxBytesReader` caps the whole request body at `MaxBodyBytes` (default 4 MiB) and returns `request_too_large`; the `source` field is separately capped at `MaxSourceBytes` (default 256 KiB) and returns `source_too_large`. The two limits are distinct so an oversize source is reported precisely instead of being masked by the body-reader cap. nsjail's `--rlimit_fsize` caps file writes inside the sandbox at 100 MiB (`internal/sandbox/sandbox.go`, `--rlimit_fsize 100`). All layers are required: the HTTP caps prevent large payloads from reaching the runner; the nsjail cap prevents a submitted program from filling the host disk through its output files.
 
 ### 5. Jail directory name collisions under concurrent load
 
