@@ -100,7 +100,8 @@ All errors: `{"error": {"code": "...", "message": "..."}}`
 | 400 | `invalid_json` | Malformed request body |
 | 400 | `missing_field` | `language` or `tests` absent |
 | 400 | `unknown_language` | Language id not registered |
-| 400 | `source_too_large` | Source exceeds 256 KiB |
+| 400 | `source_too_large` | `source` exceeds `max_source_bytes` (default 256 KiB) |
+| 400 | `request_too_large` | Whole request body exceeds `max_body_bytes` (default 4 MiB) |
 | 400 | `invalid_filename` | Source/artifact filename failed validation |
 | 400 | `invalid_flag` | Build or run flag not in the per-step allowlist |
 | 400 | `too_many_tests` | More than `max_tests` test cases supplied |
@@ -129,7 +130,7 @@ Readiness check. Probes nsjail and runs each language's smoke probe at startup; 
 ```json
 {
   "status": "ok",
-  "nsjail": {"ok": true, "version": "nsjail version 3.4"},
+  "nsjail": {"ok": true, "version": "3.4"},
   "languages": {
     "py3":  {"ok": true,  "version": "Python 3.10.12"},
     "cpp":  {"ok": true,  "version": "g++ (Ubuntu) 11.4.0"}
@@ -154,7 +155,7 @@ Build metadata, language list, and server stats. Always `200`.
   },
   "nsjail": {
     "path": "/usr/local/bin/nsjail",
-    "version": "nsjail version 3.4"
+    "version": "3.4"
   },
   "cgroups_enabled": true,
   "languages": [
@@ -171,6 +172,7 @@ Build metadata, language list, and server stats. Always `200`.
   ],
   "limits": {
     "max_source_bytes": 262144,
+    "max_body_bytes": 4194304,
     "max_tests": 100,
     "max_concurrent_jobs": 8
   },
