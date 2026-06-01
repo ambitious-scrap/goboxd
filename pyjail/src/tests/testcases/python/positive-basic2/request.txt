@@ -1,8 +1,0 @@
-code {
-  full_code: "print \"Hello from Python 2!\""
-}
-language: "py"
-testcases {
-  input: ""
-  output: "Hello from Python 2!\n"
-}

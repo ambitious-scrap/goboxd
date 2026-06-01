@@ -1,8 +1,0 @@
-code {
-  full_code: "#!/bin/bash\nread a\nread b\nsum=$((a + b))\nproduct=$((a * b))\necho \"Sum: $sum\"\necho \"Product: $product\""
-}
-language: "bash"
-testcases {
-  input: "7\n3"
-  output: "Sum: 10\nProduct: 21\n"
-}

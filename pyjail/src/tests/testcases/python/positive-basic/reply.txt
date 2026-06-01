@@ -1,9 +1,0 @@
-overall_status: OK
-compilation_result {
-  status: OK
-}
-test_case_results {
-  status: OK
-  actual_output: "10 + 5 = 15\nHello, World!\nSum of [1, 2, 3, 4, 5] = 15\nFactorial of 5 = 120\nUsing Python version 2.7\n"
-  error: ""
-}

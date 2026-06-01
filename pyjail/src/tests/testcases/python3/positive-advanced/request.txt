@@ -1,8 +1,0 @@
-code {
-  full_code: "print(\"Python 3 advanced test\")\nimport sys\ndata = list(range(100))\nprint(f\"Processed {len(data)} items\")"
-}
-language: "py3"
-testcases {
-  input: ""
-  output: "Python 3 advanced test\nProcessed 100 items\n"
-}

@@ -1,8 +1,0 @@
-code {
-  full_code: "#!/bin/bash\necho \"Hello from Bash!\""
-}
-language: "bash"
-testcases {
-  input: ""
-  output: "Hello from Bash!\n"
-}

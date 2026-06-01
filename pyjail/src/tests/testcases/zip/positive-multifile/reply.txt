@@ -1,8 +1,0 @@
-overall_status: OK
-compilation_result {
-  status: NOT_RUN
-}
-test_case_results {
-  status: NOT_RUN
-}
-evaluation_result_json: "Found 3 files in zip:\nfile1.txt: This is the first file content\nfile2.txt: This is the second file content\nfile3.txt: This is the third file with more content\nTotal characters: 101\n"

@@ -1,8 +1,0 @@
-code {
-  full_code: "const fs = require('fs');\nconst input = fs.readFileSync(0, 'utf8').trim();\nconst n = parseInt(input);\nfor(let i = 1; i <= n; i++) {\n  console.log(`Line ${i}`);\n}"
-}
-language: "javascript"
-testcases {
-  input: "3"
-  output: "Line 1\nLine 2\nLine 3\n"
-}

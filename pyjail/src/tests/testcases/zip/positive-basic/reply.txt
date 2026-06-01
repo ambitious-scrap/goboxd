@@ -1,8 +1,0 @@
-overall_status: OK
-compilation_result {
-  status: NOT_RUN
-}
-test_case_results {
-  status: NOT_RUN
-}
-evaluation_result_json: "Hello from zip!\nZip file processed successfully\n"

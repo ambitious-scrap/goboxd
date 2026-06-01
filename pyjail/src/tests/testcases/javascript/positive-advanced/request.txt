@@ -1,8 +1,0 @@
-code {
-  full_code: "console.log(\"JavaScript advanced test\");\nconst arr = [1, 2, 3, 4, 5];\nconst sum = arr.reduce((a, b) => a + b, 0);\nconsole.log(`Sum: ${sum}`);"
-}
-language: "javascript"
-testcases {
-  input: ""
-  output: "JavaScript advanced test\nSum: 15\n"
-}
