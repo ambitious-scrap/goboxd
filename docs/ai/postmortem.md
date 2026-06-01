@@ -2,7 +2,7 @@
 
 Written after Stage 1 submission. One page on surprises, where AI cost time rather than saving it, and what I'd do differently.
 
-*(In progress — Stage 1 submission is June 1. Will finalize after PR is open.)*
+*Finalized at Stage 1 submission (PR #47 against `thesouldev/goboxd:master`).*
 
 ---
 
