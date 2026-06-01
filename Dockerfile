@@ -49,17 +49,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libprotobuf23 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install language toolchains. One script per language; adding a language means
-# dropping a script here and a YAML block in configs/ — no Go changes.
+# Install language toolchains. Every script in scripts/lang_install/ runs; adding
+# a language means dropping a script here and a YAML block in configs/ — no Go and
+# no Dockerfile changes.
 COPY scripts/lang_install/ /tmp/lang_install/
 RUN apt-get update \
-    && bash /tmp/lang_install/py3.sh \
-    && bash /tmp/lang_install/c.sh \
-    && bash /tmp/lang_install/cpp.sh \
-    && bash /tmp/lang_install/java.sh \
-    && bash /tmp/lang_install/bash.sh \
-    && bash /tmp/lang_install/javascript.sh \
-    && bash /tmp/lang_install/verilog.sh \
+    && for f in /tmp/lang_install/*.sh; do echo "== running $f ==" && bash "$f"; done \
     && rm -rf /var/lib/apt/lists/* /tmp/lang_install
 
 # Install nsjail and goboxd binaries
