@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"syscall"
@@ -144,6 +145,11 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 
 	var req runRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusBadRequest, "request_too_large", "request body exceeds maximum allowed size")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
@@ -159,7 +165,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Source) > s.cfg.Server.MaxBodyBytes {
+	if len(req.Source) > s.cfg.Server.MaxSourceBytes {
 		writeError(w, http.StatusBadRequest, "source_too_large", "source exceeds maximum allowed size")
 		return
 	}
@@ -417,7 +423,8 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		CgroupsEnabled: s.cgroupsEnabled,
 		Languages:      langs,
 		Limits: map[string]int{
-			"max_source_bytes":    s.cfg.Server.MaxBodyBytes,
+			"max_source_bytes":    s.cfg.Server.MaxSourceBytes,
+			"max_body_bytes":      s.cfg.Server.MaxBodyBytes,
 			"max_tests":           s.cfg.Server.MaxTests,
 			"max_concurrent_jobs": s.cfg.Server.MaxConcurrency,
 		},

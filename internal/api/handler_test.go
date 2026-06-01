@@ -83,6 +83,7 @@ func newTestServer(t *testing.T, results ...*sandbox.Result) http.Handler {
 		Server: config.ServerConfig{
 			MaxConcurrency: 4,
 			MaxBodyBytes:   1 << 20,
+			MaxSourceBytes: 1 << 18,
 			MaxTests:       100,
 			JailBase:       t.TempDir(),
 			NsjailPath:     "/unused",
@@ -155,6 +156,52 @@ func TestRun_BadRequests(t *testing.T) {
 				t.Error("error message is empty")
 			}
 		})
+	}
+}
+
+// source_too_large fires when the source field exceeds MaxSourceBytes but the
+// whole body still fits under MaxBodyBytes — i.e. it is reachable and distinct
+// from the body-reader cap. Regression guard for the two limits being equal.
+func TestRun_SourceTooLarge(t *testing.T) {
+	h := newTestServer(t)
+	// MaxSourceBytes is 1<<18; MaxBodyBytes is 1<<20. A source just over the
+	// source cap keeps the body well under the body cap.
+	src := strings.Repeat("a", (1<<18)+1)
+	body := `{"language":"py3","source":"` + src + `","tests":[{"stdin":"","expected_stdout":"x"}]}`
+	rec := post(t, h, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+	var resp struct {
+		Error struct{ Code string } `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error.Code != "source_too_large" {
+		t.Errorf("code = %q, want source_too_large", resp.Error.Code)
+	}
+}
+
+// request_too_large fires when the whole body exceeds MaxBodyBytes; the
+// MaxBytesReader trips during decode and must map to request_too_large, not
+// invalid_json.
+func TestRun_RequestTooLarge(t *testing.T) {
+	h := newTestServer(t)
+	src := strings.Repeat("a", (1<<20)+1) // exceeds MaxBodyBytes 1<<20
+	body := `{"language":"py3","source":"` + src + `","tests":[{"stdin":"","expected_stdout":"x"}]}`
+	rec := post(t, h, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+	var resp struct {
+		Error struct{ Code string } `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error.Code != "request_too_large" {
+		t.Errorf("code = %q, want request_too_large", resp.Error.Code)
 	}
 }
 

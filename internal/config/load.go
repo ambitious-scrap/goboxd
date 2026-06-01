@@ -10,8 +10,9 @@ import (
 
 const (
 	defaultPort           = 8080
-	defaultMaxBodyBytes   = 262144 // 256 KiB
-	defaultOutputCapBytes = 65536  // 64 KiB
+	defaultMaxBodyBytes   = 4194304 // 4 MiB: whole-request envelope (source + tests)
+	defaultMaxSourceBytes = 262144  // 256 KiB: source field cap (spec)
+	defaultOutputCapBytes = 65536   // 64 KiB
 	defaultJailBase       = "/tmp/goboxd"
 	defaultNsjailPath     = "/usr/local/bin/nsjail"
 	defaultMaxTests       = 100
@@ -42,6 +43,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.MaxBodyBytes == 0 {
 		cfg.Server.MaxBodyBytes = defaultMaxBodyBytes
+	}
+	if cfg.Server.MaxSourceBytes == 0 {
+		cfg.Server.MaxSourceBytes = defaultMaxSourceBytes
 	}
 	if cfg.Server.OutputCapBytes == 0 {
 		cfg.Server.OutputCapBytes = defaultOutputCapBytes

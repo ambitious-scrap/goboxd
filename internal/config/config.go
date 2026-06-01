@@ -9,6 +9,7 @@ type ServerConfig struct {
 	Port           int    `yaml:"port"`
 	MaxConcurrency int    `yaml:"max_concurrency"`
 	MaxBodyBytes   int    `yaml:"max_body_bytes"`
+	MaxSourceBytes int    `yaml:"max_source_bytes"`
 	JailBase       string `yaml:"jail_base"`
 	NsjailPath     string `yaml:"nsjail_path"`
 	OutputCapBytes int    `yaml:"output_cap_bytes"`
