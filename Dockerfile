@@ -54,7 +54,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # no Dockerfile changes.
 COPY scripts/lang_install/ /tmp/lang_install/
 RUN apt-get update \
-    && for f in /tmp/lang_install/*.sh; do echo "== running $f ==" && bash "$f"; done \
+    && for f in /tmp/lang_install/*.sh; do echo "== running $f =="; bash "$f" || exit 1; done \
     && rm -rf /var/lib/apt/lists/* /tmp/lang_install
 
 # Install nsjail and goboxd binaries
