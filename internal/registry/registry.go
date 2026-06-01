@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,9 +42,14 @@ func (r *Registry) Get(id string) (*config.Language, bool) {
 
 // All returns all registered languages in deterministic order (sorted by id).
 func (r *Registry) All() []*config.Language {
-	out := make([]*config.Language, 0, len(r.langs))
-	for _, l := range r.langs {
-		out = append(out, l)
+	ids := make([]string, 0, len(r.langs))
+	for id := range r.langs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]*config.Language, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, r.langs[id])
 	}
 	return out
 }
