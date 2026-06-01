@@ -17,8 +17,8 @@ import (
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/ambitious-scrap/goboxd/internal/api"
-	"github.com/ambitious-scrap/goboxd/internal/jail"
 	"github.com/ambitious-scrap/goboxd/internal/config"
+	"github.com/ambitious-scrap/goboxd/internal/jail"
 	"github.com/ambitious-scrap/goboxd/internal/registry"
 	"github.com/ambitious-scrap/goboxd/internal/runner"
 	"github.com/ambitious-scrap/goboxd/internal/sandbox"
@@ -73,11 +73,21 @@ func main() {
 
 	r := runner.New(cfg.Server.NsjailPath, cfg.Server.JailBase, cfg.Server.OutputCapBytes)
 
+	nsjailInfo := api.NsjailInfo{}
+	if v, err := sandbox.Version(ctx, cfg.Server.NsjailPath); err != nil {
+		nsjailInfo.Error = err.Error()
+		slog.Warn("nsjail probe failed", "err", err)
+	} else {
+		nsjailInfo.OK = true
+		nsjailInfo.Version = v
+		slog.Info("nsjail ready", "version", v)
+	}
+
 	srv := api.NewServer(cfg, reg, r, smokes, api.BuildInfo{
 		Version:   version,
 		Commit:    commit,
 		GoVersion: goVersion,
-	})
+	}, nsjailInfo)
 
 	httpSrv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),

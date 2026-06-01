@@ -14,6 +14,7 @@ const (
 	defaultOutputCapBytes = 65536  // 64 KiB
 	defaultJailBase       = "/tmp/goboxd"
 	defaultNsjailPath     = "/usr/local/bin/nsjail"
+	defaultMaxTests       = 100
 )
 
 func Load(path string) (*Config, error) {
@@ -50,6 +51,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.NsjailPath == "" {
 		cfg.Server.NsjailPath = defaultNsjailPath
+	}
+	if cfg.Server.MaxTests == 0 {
+		cfg.Server.MaxTests = defaultMaxTests
 	}
 	for i := range cfg.Languages {
 		applyLanguageDefaults(&cfg.Languages[i])

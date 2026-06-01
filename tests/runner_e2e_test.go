@@ -23,10 +23,10 @@ func (f *fakeSandbox) Run(_ context.Context, _ sandbox.RunConfig) (*sandbox.Resu
 	return r, nil
 }
 
-func ok(stdout string) *sandbox.Result  { return &sandbox.Result{ExitCode: 0, Stdout: stdout} }
-func fail(code int) *sandbox.Result     { return &sandbox.Result{ExitCode: code} }
-func oom() *sandbox.Result              { return &sandbox.Result{ExitCode: 1, OOMKilled: true} }
-func timeout() *sandbox.Result          { return &sandbox.Result{ExitCode: 1, TimedOut: true} }
+func ok(stdout string) *sandbox.Result { return &sandbox.Result{ExitCode: 0, Stdout: stdout} }
+func fail(code int) *sandbox.Result    { return &sandbox.Result{ExitCode: code} }
+func oom() *sandbox.Result             { return &sandbox.Result{ExitCode: 1, OOMKilled: true} }
+func timeout() *sandbox.Result         { return &sandbox.Result{ExitCode: 1, TimedOut: true} }
 
 var py3 = &config.Language{
 	ID:             "py3",

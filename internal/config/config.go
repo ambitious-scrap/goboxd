@@ -12,6 +12,7 @@ type ServerConfig struct {
 	JailBase       string `yaml:"jail_base"`
 	NsjailPath     string `yaml:"nsjail_path"`
 	OutputCapBytes int    `yaml:"output_cap_bytes"`
+	MaxTests       int    `yaml:"max_tests"`
 }
 
 type Language struct {
@@ -34,9 +35,10 @@ type BuildStep struct {
 }
 
 type RunStep struct {
-	Cmd    string   `yaml:"cmd"`
-	Args   []string `yaml:"args"`
-	Limits Limits   `yaml:"limits"`
+	Cmd           string   `yaml:"cmd"`
+	Args          []string `yaml:"args"`
+	Limits        Limits   `yaml:"limits"`
+	FlagAllowlist []string `yaml:"flag_allowlist"`
 }
 
 type Limits struct {

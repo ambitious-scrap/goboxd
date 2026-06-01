@@ -83,6 +83,7 @@ func newTestServer(t *testing.T, results ...*sandbox.Result) http.Handler {
 		Server: config.ServerConfig{
 			MaxConcurrency: 4,
 			MaxBodyBytes:   1 << 20,
+			MaxTests:       100,
 			JailBase:       t.TempDir(),
 			NsjailPath:     "/unused",
 			OutputCapBytes: 65536,
@@ -91,7 +92,8 @@ func newTestServer(t *testing.T, results ...*sandbox.Result) http.Handler {
 	reg := registry.New(testLangs())
 	r := runner.NewWithSandbox(&fakeSandbox{results: results}, cfg.Server.JailBase, cfg.Server.OutputCapBytes)
 	smokes := map[string]registry.SmokeResult{"py3": {OK: true}}
-	srv := api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"})
+	nsjail := api.NsjailInfo{OK: true, Version: "nsjail test"}
+	srv := api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"}, nsjail)
 	return srv.Router()
 }
 
@@ -128,7 +130,7 @@ func TestRun_BadRequests(t *testing.T) {
 		{"unknown language", `{"language":"cobol","tests":[{"stdin":"","expected_stdout":"x"}]}`, "unknown_language"},
 		{"missing tests", `{"language":"py3","source":"print(1)"}`, "missing_field"},
 		{"bad filename", `{"language":"jlang","source":"x","source_filename":"../evil","artifact_filename":"A","tests":[{"stdin":"","expected_stdout":"x"}]}`, "invalid_filename"},
-		{"disallowed flag", `{"language":"cpp","source":"int main(){}","flags":["-fevil"],"tests":[{"stdin":"","expected_stdout":"x"}]}`, "invalid_flag"},
+		{"disallowed flag", `{"language":"cpp","source":"int main(){}","build":{"flags":["-fevil"]},"tests":[{"stdin":"","expected_stdout":"x"}]}`, "invalid_flag"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -211,5 +213,93 @@ func TestRun_BuildFailed(t *testing.T) {
 	}
 	if resp.Tests[0].Status != "not_executed" {
 		t.Errorf("test status = %q, want not_executed", resp.Tests[0].Status)
+	}
+}
+
+func TestRun_NestedBuildFlagsAccepted(t *testing.T) {
+	// Allow-listed flag in the nested build object passes validation.
+	// Two Run calls: build (exit 0) then the single test.
+	h := newTestServer(t,
+		&sandbox.Result{ExitCode: 0},
+		&sandbox.Result{ExitCode: 0, Stdout: "ok\n"},
+	)
+	rec := post(t, h, `{"language":"cpp","source":"int main(){}","build":{"flags":["-O2"],"limits":{"wall_time_s":7}},"run":{"limits":{"memory_kb":131072}},"tests":[{"stdin":"","expected_stdout":"ok\n"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"accepted"`) {
+		t.Errorf("body = %s", rec.Body.String())
+	}
+}
+
+func TestRun_TooManyTests(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"language":"py3","source":"print(1)","tests":[`)
+	for i := 0; i < 101; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"stdin":"","expected_stdout":"x"}`)
+	}
+	b.WriteString(`]}`)
+	h := newTestServer(t)
+	rec := post(t, h, b.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "too_many_tests") {
+		t.Errorf("body = %s", rec.Body.String())
+	}
+}
+
+func TestReadyz_IncludesNsjail(t *testing.T) {
+	h := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("readyz code = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Status string `json:"status"`
+		Nsjail struct {
+			OK      bool   `json:"ok"`
+			Version string `json:"version"`
+		} `json:"nsjail"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.Nsjail.OK || resp.Nsjail.Version == "" {
+		t.Errorf("nsjail block = %+v", resp.Nsjail)
+	}
+}
+
+func TestInfo_LimitsAndNsjailVersion(t *testing.T) {
+	h := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/info", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("info code = %d", rec.Code)
+	}
+	var resp struct {
+		Nsjail map[string]string `json:"nsjail"`
+		Limits map[string]int    `json:"limits"`
+		Stats  map[string]any    `json:"stats"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Nsjail["version"] == "" {
+		t.Error("info nsjail.version is empty")
+	}
+	for _, k := range []string{"max_source_bytes", "max_tests", "max_concurrent_jobs"} {
+		if _, ok := resp.Limits[k]; !ok {
+			t.Errorf("info limits missing %q: %+v", k, resp.Limits)
+		}
+	}
+	if _, ok := resp.Stats["last_internal_error_at"]; !ok {
+		t.Error("info stats missing last_internal_error_at")
 	}
 }

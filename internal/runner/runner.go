@@ -35,12 +35,12 @@ type TestCase struct {
 
 // TestResult is the outcome of one test case execution.
 type TestResult struct {
-	Status    string
-	Stdout    string
-	Stderr    string
+	Status     string
+	Stdout     string
+	Stderr     string
 	DurationMs int64
-	MemPeakKB int64
-	Truncated bool
+	MemPeakKB  int64
+	Truncated  bool
 }
 
 // RunRequest bundles everything needed to execute a submission.
@@ -49,7 +49,10 @@ type RunRequest struct {
 	Source           string
 	SourceFilename   string // overrides lang.SourceFilename when strategy=from_request
 	ArtifactFilename string // overrides lang.Artifact when strategy=from_request
-	Flags            []string
+	BuildFlags       []string
+	RunFlags         []string
+	BuildLimits      config.Limits // effective build limits (defaults merged with request override)
+	RunLimits        config.Limits // effective run limits (defaults merged with request override)
 	Tests            []TestCase
 	JailBase         string
 	NsjailPath       string
@@ -58,18 +61,18 @@ type RunRequest struct {
 
 // RunResult is the fully computed outcome of a submission.
 type RunResult struct {
-	BuildStatus   string
+	BuildStatus     string
 	BuildDurationMs int64
-	BuildStdout   string
-	BuildStderr   string
-	Tests         []TestResult
-	TopStatus     string
+	BuildStdout     string
+	BuildStderr     string
+	Tests           []TestResult
+	TopStatus       string
 }
 
 // Runner orchestrates build + test execution.
 type Runner struct {
-	sb       SandboxRunner
-	jailBase string
+	sb        SandboxRunner
+	jailBase  string
 	outputCap int
 }
 
@@ -108,17 +111,29 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 
 	vars := placeholderVars(req, jailPath)
 
+	// Effective limits. The API handler always supplies merged limits, but direct
+	// callers (and integration tests) may leave them zero — fall back to the
+	// language defaults so a step is never run with an empty limit set.
+	buildLimits := req.BuildLimits
+	if req.Language.Build != nil && buildLimits == (config.Limits{}) {
+		buildLimits = req.Language.Build.Limits
+	}
+	runLimits := req.RunLimits
+	if runLimits == (config.Limits{}) {
+		runLimits = req.Language.Run.Limits
+	}
+
 	// Build phase (compiled languages only).
 	if req.Language.Build != nil {
 		args := registry.Resolve(req.Language.Build.Args, vars)
-		args = registry.ExpandFlags(args, req.Flags)
+		args = registry.ExpandFlags(args, req.BuildFlags)
 
 		start := time.Now()
 		br, err := r.sb.Run(ctx, sandbox.RunConfig{
 			WorkDir:   jailPath,
 			Cmd:       registry.ResolveOne(req.Language.Build.Cmd, vars),
 			Args:      args,
-			Limits:    req.Language.Build.Limits,
+			Limits:    buildLimits,
 			OutputCap: r.outputCap,
 		})
 		res.BuildDurationMs = time.Since(start).Milliseconds()
@@ -130,12 +145,12 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 		res.BuildStderr = br.Stderr
 
 		if br.ExitCode != 0 {
-			res.BuildStatus = status.BuildFailed  // build.status = "failed"
+			res.BuildStatus = status.BuildFailed // build.status = "failed"
 			res.Tests = make([]TestResult, len(req.Tests))
 			for i := range res.Tests {
 				res.Tests[i].Status = status.NotExecuted
 			}
-			res.TopStatus = status.TopBuildFailed  // top-level = "build_failed"
+			res.TopStatus = status.TopBuildFailed // top-level = "build_failed"
 			return res, nil
 		}
 		res.BuildStatus = status.BuildOK
@@ -146,6 +161,7 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 	testStatuses := make([]string, len(req.Tests))
 
 	runArgs := registry.Resolve(req.Language.Run.Args, vars)
+	runArgs = registry.ExpandFlags(runArgs, req.RunFlags)
 	runCmd := registry.ResolveOne(req.Language.Run.Cmd, vars)
 
 	for i, tc := range req.Tests {
@@ -155,7 +171,7 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 			Cmd:       runCmd,
 			Args:      runArgs,
 			Stdin:     tc.Stdin,
-			Limits:    req.Language.Run.Limits,
+			Limits:    runLimits,
 			OutputCap: r.outputCap,
 		})
 		durationMs := time.Since(start).Milliseconds()
