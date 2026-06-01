@@ -24,6 +24,10 @@ func TestCompareOutput(t *testing.T) {
 		{"", "", status.Accepted},
 		// whitespace-only content vs empty
 		{"\n", "", status.OutputWhitespaceMismatch},
+		// leading/trailing whitespace of the whole output is ignored
+		{"  hello\n", "hello", status.OutputWhitespaceMismatch},
+		// internal whitespace differences are NOT normalized (matches reference impl)
+		{"a  b\n", "a b\n", status.WrongOutput},
 	}
 	for _, tc := range cases {
 		got := status.CompareOutput(tc.got, tc.expected)

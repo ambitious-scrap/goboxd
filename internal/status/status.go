@@ -23,12 +23,17 @@ const (
 )
 
 // CompareOutput compares actual output against expected, returning the
-// appropriate status string. Whitespace-only differences get their own status.
+// appropriate status string. This matches the reference implementation
+// (pyjail code_runner.py): exact byte equality is "accepted"; otherwise, if the
+// strings are equal after trimming leading/trailing whitespace from the whole
+// output, it is a whitespace-only mismatch; otherwise it is wrong output.
+// Note: differences in *internal* whitespace (e.g. "a  b" vs "a b") are NOT
+// normalized and remain wrong_output, per the reference.
 func CompareOutput(got, expected string) string {
 	if got == expected {
 		return Accepted
 	}
-	if normalizeWhitespace(got) == normalizeWhitespace(expected) {
+	if strings.TrimSpace(got) == strings.TrimSpace(expected) {
 		return OutputWhitespaceMismatch
 	}
 	return WrongOutput
@@ -45,16 +50,4 @@ func TopLevel(buildStatus string, testStatuses []string) string {
 		}
 	}
 	return Accepted
-}
-
-func normalizeWhitespace(s string) string {
-	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " \t")
-	}
-	// trim trailing empty lines
-	for len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	return strings.Join(lines, "\n")
 }
