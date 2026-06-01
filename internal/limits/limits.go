@@ -10,30 +10,24 @@ type RequestOverride struct {
 	MaxProcesses *int
 }
 
-// Merge returns effective limits for a run step, applying any request
-// overrides clamped to the language-configured maximums.
+// Merge returns effective limits for a step. The spec defines request limits as
+// a partial override: each present field replaces the language default; absent
+// fields fall back to the default. There is no server-side ceiling/clamp — a
+// request may raise its own budget above the language default. A non-positive
+// value is ignored (treated as absent) since zero/negative limits are nonsensical.
 func Merge(defaults config.Limits, override *RequestOverride) config.Limits {
 	out := defaults
 	if override == nil {
 		return out
 	}
-	if override.WallTimeS != nil {
-		v := *override.WallTimeS
-		if v > 0 && v <= defaults.WallTimeS {
-			out.WallTimeS = v
-		}
+	if override.WallTimeS != nil && *override.WallTimeS > 0 {
+		out.WallTimeS = *override.WallTimeS
 	}
-	if override.MemoryKB != nil {
-		v := *override.MemoryKB
-		if v > 0 && v <= defaults.MemoryKB {
-			out.MemoryKB = v
-		}
+	if override.MemoryKB != nil && *override.MemoryKB > 0 {
+		out.MemoryKB = *override.MemoryKB
 	}
-	if override.MaxProcesses != nil {
-		v := *override.MaxProcesses
-		if v > 0 && v <= defaults.MaxProcesses {
-			out.MaxProcesses = v
-		}
+	if override.MaxProcesses != nil && *override.MaxProcesses > 0 {
+		out.MaxProcesses = *override.MaxProcesses
 	}
 	return out
 }

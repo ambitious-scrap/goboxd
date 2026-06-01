@@ -33,14 +33,20 @@ func TestMerge(t *testing.T) {
 			want:     config.Limits{WallTimeS: 3, MemoryKB: 131072, MaxProcesses: 32},
 		},
 		{
-			name:     "equal to max is allowed",
+			name:     "equal to default is applied",
 			override: &limits.RequestOverride{WallTimeS: intp(5), MemoryKB: intp(262144), MaxProcesses: intp(64)},
 			want:     config.Limits{WallTimeS: 5, MemoryKB: 262144, MaxProcesses: 64},
 		},
 		{
-			name:     "over max is clamped to default",
+			// Spec defines no ceiling: an override above the default replaces it.
+			name:     "above default replaces (no clamp)",
 			override: &limits.RequestOverride{WallTimeS: intp(99), MemoryKB: intp(9999999), MaxProcesses: intp(9999)},
-			want:     defaults,
+			want:     config.Limits{WallTimeS: 99, MemoryKB: 9999999, MaxProcesses: 9999},
+		},
+		{
+			name:     "partial override falls back per field",
+			override: &limits.RequestOverride{MemoryKB: intp(131072)},
+			want:     config.Limits{WallTimeS: 5, MemoryKB: 131072, MaxProcesses: 64},
 		},
 		{
 			name:     "zero is ignored",
