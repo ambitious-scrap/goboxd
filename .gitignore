@@ -6,3 +6,7 @@
 
 # Private AI development journals — kept local, not version-controlled
 /docs/ai/
+
+# Agent tooling artifacts — kept local, not version-controlled
+/.codex/
+/AGENTS.md
