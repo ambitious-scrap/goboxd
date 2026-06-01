@@ -28,6 +28,9 @@ type Server struct {
 	smokes    map[string]registry.SmokeResult
 	buildInfo BuildInfo
 	nsjail    NsjailInfo
+	// cgroupsEnabled reports whether per-run cgroup v2 memory accounting is
+	// active; false means the sandbox is on the rlimit_as fallback.
+	cgroupsEnabled bool
 }
 
 // BuildInfo is injected at link time via -ldflags.
@@ -44,15 +47,16 @@ type NsjailInfo struct {
 	Error   string
 }
 
-func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smokes map[string]registry.SmokeResult, bi BuildInfo, nsjail NsjailInfo) *Server {
+func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smokes map[string]registry.SmokeResult, bi BuildInfo, nsjail NsjailInfo, cgroupsEnabled bool) *Server {
 	return &Server{
-		cfg:       cfg,
-		reg:       reg,
-		runner:    r,
-		sem:       make(chan struct{}, cfg.Server.MaxConcurrency),
-		smokes:    smokes,
-		buildInfo: bi,
-		nsjail:    nsjail,
+		cfg:            cfg,
+		reg:            reg,
+		runner:         r,
+		sem:            make(chan struct{}, cfg.Server.MaxConcurrency),
+		smokes:         smokes,
+		buildInfo:      bi,
+		nsjail:         nsjail,
+		cgroupsEnabled: cgroupsEnabled,
 	}
 }
 
@@ -362,11 +366,12 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 // --- /info ---
 
 type infoResponse struct {
-	BuildInfo map[string]string `json:"build_info"`
-	Nsjail    map[string]string `json:"nsjail"`
-	Languages []langInfo        `json:"languages"`
-	Limits    map[string]int    `json:"limits"`
-	Stats     map[string]any    `json:"stats"`
+	BuildInfo      map[string]string `json:"build_info"`
+	Nsjail         map[string]string `json:"nsjail"`
+	CgroupsEnabled bool              `json:"cgroups_enabled"`
+	Languages      []langInfo        `json:"languages"`
+	Limits         map[string]int    `json:"limits"`
+	Stats          map[string]any    `json:"stats"`
 }
 
 type langInfo struct {
@@ -409,7 +414,8 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 			"path":    s.cfg.Server.NsjailPath,
 			"version": s.nsjail.Version,
 		},
-		Languages: langs,
+		CgroupsEnabled: s.cgroupsEnabled,
+		Languages:      langs,
 		Limits: map[string]int{
 			"max_source_bytes":    s.cfg.Server.MaxBodyBytes,
 			"max_tests":           s.cfg.Server.MaxTests,

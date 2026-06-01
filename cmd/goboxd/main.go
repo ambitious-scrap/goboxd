@@ -83,11 +83,18 @@ func main() {
 		slog.Info("nsjail ready", "version", v)
 	}
 
+	cgroupsEnabled := sandbox.MemoryAccountingAvailable()
+	if cgroupsEnabled {
+		slog.Info("cgroup v2 memory accounting active")
+	} else {
+		slog.Warn("cgroup v2 memory accounting unavailable; using rlimit_as fallback (no OOM detection)")
+	}
+
 	srv := api.NewServer(cfg, reg, r, smokes, api.BuildInfo{
 		Version:   version,
 		Commit:    commit,
 		GoVersion: goVersion,
-	}, nsjailInfo)
+	}, nsjailInfo, cgroupsEnabled)
 
 	httpSrv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),

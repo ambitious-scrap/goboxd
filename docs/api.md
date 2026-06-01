@@ -156,6 +156,7 @@ Build metadata, language list, and server stats. Always `200`.
     "path": "/usr/local/bin/nsjail",
     "version": "nsjail version 3.4"
   },
+  "cgroups_enabled": true,
   "languages": [
     {
       "id": "py3",
@@ -185,3 +186,5 @@ Build metadata, language list, and server stats. Always `200`.
 ```
 
 `stats.last_internal_error_at` is `null` until the first server-side error, then an RFC 3339 timestamp.
+
+`cgroups_enabled` reports whether per-run cgroup v2 memory accounting is active. When `false`, the sandbox is on the `--rlimit_as` fallback: memory limits are still enforced but OOM kills and `memory_peak_kb` are not reported (peaks read as 0). It is probed once at startup.

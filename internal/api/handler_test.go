@@ -93,7 +93,7 @@ func newTestServer(t *testing.T, results ...*sandbox.Result) http.Handler {
 	r := runner.NewWithSandbox(&fakeSandbox{results: results}, cfg.Server.JailBase, cfg.Server.OutputCapBytes)
 	smokes := map[string]registry.SmokeResult{"py3": {OK: true}}
 	nsjail := api.NsjailInfo{OK: true, Version: "nsjail test"}
-	srv := api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"}, nsjail)
+	srv := api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"}, nsjail, true)
 	return srv.Router()
 }
 
@@ -284,15 +284,20 @@ func TestInfo_LimitsAndNsjailVersion(t *testing.T) {
 		t.Fatalf("info code = %d", rec.Code)
 	}
 	var resp struct {
-		Nsjail map[string]string `json:"nsjail"`
-		Limits map[string]int    `json:"limits"`
-		Stats  map[string]any    `json:"stats"`
+		Nsjail         map[string]string `json:"nsjail"`
+		CgroupsEnabled bool              `json:"cgroups_enabled"`
+		Limits         map[string]int    `json:"limits"`
+		Stats          map[string]any    `json:"stats"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if resp.Nsjail["version"] == "" {
 		t.Error("info nsjail.version is empty")
+	}
+	if !resp.CgroupsEnabled {
+		// newTestServer wires cgroupsEnabled=true; assert the field round-trips.
+		t.Error("info cgroups_enabled = false, want true")
 	}
 	for _, k := range []string{"max_source_bytes", "max_tests", "max_concurrent_jobs"} {
 		if _, ok := resp.Limits[k]; !ok {
