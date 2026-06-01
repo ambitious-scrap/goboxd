@@ -17,6 +17,25 @@ import (
 
 const truncationMarker = "\n...[truncated]"
 
+// Version returns nsjail's version string by invoking `nsjail --version`. nsjail
+// prints its banner to stderr and may exit non-zero, so the exit code is ignored
+// and the first non-empty line of combined output is returned.
+func Version(ctx context.Context, nsjailPath string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, nsjailPath, "--version")
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	_ = cmd.Run()
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line, nil
+		}
+	}
+	return "", fmt.Errorf("nsjail --version produced no output")
+}
+
 // RunConfig holds everything needed to execute one command in nsjail.
 type RunConfig struct {
 	NsjailPath string
