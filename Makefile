@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS  = -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 
-.PHONY: build run test integration lint load clean verify-nsjail docker-build docker-run
+.PHONY: build run test integration integration-docker lint load clean verify-nsjail docker-build docker-run
 
 # Spec requires nsjail built from the submodule pinned to tag 3.4. Assert that
 # before any image build so a drifted submodule fails loudly instead of silently
@@ -24,8 +24,23 @@ run: build
 test:
 	go test ./...
 
+# Integration suite runs trivial programs through real nsjail, so it needs Linux
+# + nsjail + every toolchain. On a non-Linux host (e.g. macOS) it fails with
+# "fork/exec /usr/local/bin/nsjail: no such file or directory" — use
+# integration-docker there, which runs it inside the built image.
 integration:
 	go test ./tests/... -tags integration -v
+
+# Cross-compiles the integration test binary for Linux on the host and runs it
+# inside the runtime image (which has nsjail + all toolchains + the installed
+# config). Works on macOS/Colima; no Go toolchain needed in the image.
+integration-docker: docker-build
+	GOOS=linux GOARCH=$(shell go env GOARCH) go test -c -tags integration -o bin/itest.test ./tests/
+	docker run --rm --privileged \
+	    -e GOBOXD_CONFIG=/etc/goboxd/languages.yaml \
+	    -v "$(PWD)/bin/itest.test:/itest.test:ro" \
+	    --entrypoint /itest.test \
+	    goboxd:$(VERSION) -test.v
 
 lint:
 	go vet ./...

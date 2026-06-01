@@ -51,7 +51,14 @@ var helloCases = []helloCase{
 }
 
 func TestLanguages_HelloWorld(t *testing.T) {
-	cfg, err := config.Load("../configs/languages.yaml")
+	// Config path is overridable so the suite can run both from the repo root
+	// (go test ./tests/...) and inside the runtime image (GOBOXD_CONFIG points at
+	// the installed config). See the integration-docker Makefile target.
+	cfgPath := os.Getenv("GOBOXD_CONFIG")
+	if cfgPath == "" {
+		cfgPath = "../configs/languages.yaml"
+	}
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
