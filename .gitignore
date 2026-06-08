@@ -10,3 +10,16 @@
 # Agent tooling artifacts — kept local, not version-controlled
 /.codex/
 /AGENTS.md
+
+# PR Analysis & Local PR copies
+/pr_analysis/
+/pull_requests/
+
+# Stage 1 leaderboard (compiled from judge comments) — kept local
+/goboxd-stage1-leaderboard.md
+
+# graphify knowledge-graph artifacts — generated, kept local
+/graphify-out/
+
+# macOS junk
+.DS_Store
