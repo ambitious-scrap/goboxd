@@ -80,3 +80,39 @@ These are verified technical features and patterns from competing submissions th
 *   **Multi-file Project Support**: Accept a file map (zip/tar or JSON structures) instead of a single source file, allowing sandboxed compilation of modular, multi-file codebases.
 *   **Grader-style Evaluations**: Support grader files. Instead of comparing strings via stdout, compile the user's code against a hidden local test runner binary that executes assertions and reports structured metrics.
 *   **Typed SDK Generation**: Expose a versioned `/v1` API documented with OpenAPI specs, allowing automated generation of client SDKs for frontend online judges.
+
+---
+
+## Shipped (appended 2026-06-09)
+
+The items above are kept verbatim as the original forward-looking record. Several have
+since landed; this section is **appended, not edited in place**. Cross-references:
+`docs/improvements.md` (Part C verdicts), `docs/benchmarks.md` (2026-06-09 results),
+commit `5a6e32d`.
+
+*   **Part 1 §3 — `/metrics`**: DONE. Prometheus exporter on a separate admin port
+    (commit `0561987`); bounded label cardinality (`language`, `verdict`), latency
+    histograms per phase, plus cache-hit and queue-wait series.
+*   **Part 1 §4 — Job queue & backpressure**: DONE (as bounded admission, not a separate
+    `internal/queue` package). `waiting` atomic counter + `goboxd_queue_depth` gauge;
+    capacity = `MaxConcurrency + MaxQueue`; overflow shed with `503` + `Retry-After`.
+*   **Part 2 §1 — Backpressure not clamping**: DONE and benchmarked. `503` + `Retry-After`
+    at saturation; per-run limits never mutated, so verdicts stay load-independent.
+    Measured: flat ~32 ms p95 for admitted requests under c=100 overload (see benchmarks).
+*   **Part 2 §2 — SJF heap scheduling**: PARTIAL / deliberately deferred. The head-of-line
+    problem is addressed by a **build lane** (`buildSem` of `MaxBuildConcurrency`) that caps
+    concurrent compiles below total run slots, so a flood of C++ builds can't starve light
+    runs. The min-heap + starvation-aging design is **not** shipped: ranking by the
+    wall-time *limit* mis-estimates real job size (see `docs/improvements.md` C-1). Revisit
+    only with an EMA-of-actual-runtime signal.
+*   **Part 3 §3 — Execution caching**: DONE as an **artifact** cache, NOT a full result
+    cache. `internal/artifactcache` is content-addressed and toolchain-versioned, caches
+    the compiled binary only, and always re-runs in a fresh jail (verdict-neutral).
+    Caching test *verdicts* was rejected: nondeterministic programs would return stale
+    results. ~36× C++ throughput on identical resubmissions (see benchmarks).
+*   **Seccomp-BPF (Part 1 §1)** and **cgroup `cpu.max` / `pids.max`** also shipped earlier
+    (commits `dbc446a`, `9b6f431`); see `docs/security.md`.
+
+Still open from this doc: fuzz/property tests (Part 1 §2), deeper sandbox layering
+(Part 1 §5), microVM tier, async API, distributed workers, warm pools, multi-file /
+grader / SDK (Part 3 §1, §2, §4).

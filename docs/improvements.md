@@ -250,3 +250,30 @@ saturation, resource distributions, and verdict-type breakdown.
 | 4 | seccomp/kafel | Keep | per-language policies (JITs need more); wider deny set; audit-mode first |
 | 5 | cgroup `cpu.max` | Keep (real gap) | sub-core quota inflates wall time → grade on cpu-time; also add cgroup `pids.max` |
 | 6 | Prometheus | Keep | cap label cardinality; admin-only port; add cache-hit + queue-wait metrics |
+
+---
+
+## Follow-up notes (appended 2026-06-09, post-merge review of `5a6e32d`)
+
+Local review of the shipped C-1/C-2 code (build/vet/test all green, 73/73). Two
+best-effort behaviors worth a future hardening pass — **neither affects verdicts or blocks
+the feature**; recorded here so they aren't lost:
+
+1. **Artifact-cache single-flight lock is not context-cancellable.**
+   `Cache.Lock(key)` (`internal/artifactcache/artifactcache.go`) returns a release fn, and
+   `buildPhase` holds it across `get → build → put`. A second identical submission that
+   arrives while the first compiles blocks on `kl.mu.Lock()`, which ignores `ctx` — a client
+   that cancels mid-wait won't unblock until the in-flight compile finishes. Bounded by the
+   build step's `wall_time_s` (30 s default), so the blast radius is small. Future fix:
+   `TryLock` + `select` on `ctx.Done()`, or a per-key `chan` the waiter can select on.
+
+2. **`evict()` runs under the per-key lock only, not a cache-wide lock.**
+   On `Put`, `evict()` scans the whole cache dir and `RemoveAll`s the oldest entries. Two
+   concurrent `Put`s on *different* keys can race each other's `rename`/`RemoveAll`. Worst
+   case: an entry is evicted immediately after being committed → the next identical request
+   is a miss and recompiles. No corruption (rename is atomic; a half-state degrades to a
+   miss). Acceptable for a best-effort cache; revisit with a cache-wide eviction lock only
+   if hit-ratio metrics show churn.
+
+Both are consistent with the design intent ("all cache IO errors degrade to a miss"); they
+are logged as known limitations, not bugs.
