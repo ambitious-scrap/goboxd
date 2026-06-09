@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thesouldev/goboxd/internal/api"
 	"github.com/thesouldev/goboxd/internal/config"
@@ -138,6 +139,104 @@ func post(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// gateSandbox signals each Run entry on entered, then blocks until release is
+// closed — letting a test observe exactly which requests cleared admission.
+type gateSandbox struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gateSandbox) Run(_ context.Context, _ sandbox.RunConfig) (*sandbox.Result, error) {
+	g.entered <- struct{}{}
+	<-g.release
+	return &sandbox.Result{ExitCode: 0, Stdout: "hi\n"}, nil
+}
+
+// newServerWithFastLane is newServerWith plus an explicit fast-lane reservation.
+func newServerWithFastLane(t *testing.T, sb runner.SandboxRunner, maxConc, maxQueue, reserved int) *api.Server {
+	t.Helper()
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			MaxConcurrency:   maxConc,
+			MaxQueue:         maxQueue,
+			FastLaneReserved: reserved,
+			MaxBodyBytes:     1 << 20,
+			MaxSourceBytes:   1 << 18,
+			MaxTests:         100,
+			JailBase:         t.TempDir(),
+			NsjailPath:       "/unused",
+			OutputCapBytes:   65536,
+		},
+	}
+	reg := registry.New(testLangs())
+	r := runner.NewWithSandbox(sb, cfg.Server.JailBase, cfg.Server.OutputCapBytes, 0, nil)
+	smokes := map[string]registry.SmokeResult{"py3": {OK: true}}
+	nsjail := api.NsjailInfo{OK: true, Version: "nsjail test"}
+	return api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"}, nsjail, true)
+}
+
+// waitEntries blocks until n values arrive on ch or the deadline elapses.
+func waitEntries(ch <-chan struct{}, n int, d time.Duration) bool {
+	deadline := time.After(d)
+	for i := 0; i < n; i++ {
+		select {
+		case <-ch:
+		case <-deadline:
+			return false
+		}
+	}
+	return true
+}
+
+// Heavy (compiled) jobs must not starve light (interpreted) jobs of admission:
+// the fast-lane reservation keeps slots open for light requests even when the
+// heavy lane is saturated.
+func TestRun_FastLaneAdmitsLightUnderHeavySaturation(t *testing.T) {
+	gate := &gateSandbox{entered: make(chan struct{}, 8), release: make(chan struct{})}
+	defer close(gate.release)
+
+	// maxConc=2, reserved=1 => heavy lane capped at 1; one slot stays open for light.
+	srv := newServerWithFastLane(t, gate, 2, 16, 1)
+	h := srv.Router()
+
+	cpp := `{"language":"cpp","source":"int main(){}","tests":[{"stdin":"","expected_stdout":"hi\n"}]}`
+	py := `{"language":"py3","source":"print(1)","tests":[{"stdin":"","expected_stdout":"hi\n"}]}`
+	fire := func(body string) {
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/run", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			h.ServeHTTP(httptest.NewRecorder(), req)
+		}()
+	}
+
+	// Two heavy jobs; the heavy lane (cap 1) admits exactly one into the sandbox.
+	fire(cpp)
+	fire(cpp)
+	if !waitEntries(gate.entered, 1, 2*time.Second) {
+		t.Fatal("no heavy job entered the sandbox")
+	}
+
+	// A light job must still clear admission via the reserved slot.
+	fire(py)
+	if !waitEntries(gate.entered, 1, 2*time.Second) {
+		t.Fatal("light job blocked behind saturated heavy lane; fast-lane reservation not working")
+	}
+}
+
+// A reservation larger than the pool must clamp the heavy lane to >=1 so
+// compiled jobs still run instead of deadlocking on a zero-capacity lane.
+func TestRun_FastLaneOverReservationNoDeadlock(t *testing.T) {
+	sb := &fakeSandbox{results: []*sandbox.Result{{ExitCode: 0}, {ExitCode: 0, Stdout: "ok\n"}}}
+	srv := newServerWithFastLane(t, sb, 1, 4, 5) // reserved > maxConc
+	rec := post(t, srv.Router(), `{"language":"cpp","source":"int main(){}","tests":[{"stdin":"","expected_stdout":"ok\n"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"accepted"`) {
+		t.Errorf("body = %s", rec.Body.String())
+	}
 }
 
 func TestHealthz(t *testing.T) {

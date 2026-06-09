@@ -16,6 +16,13 @@ server:
   # a flood of heavy compiles can't starve light interpreted runs. 0 or a value
   # >= max_concurrency disables the separate lane. Default: max(1, max_concurrency/2).
   # max_build_concurrency: 0
+  # fast_lane_reserved reserves this many of the max_concurrency run slots for
+  # light (interpreted, no build step) jobs, so a burst of slow compiled jobs
+  # can never starve them of admission. Heavy compiled jobs are capped at
+  # max_concurrency - fast_lane_reserved. Pure admission ordering — verdicts stay
+  # load-independent. 0 disables. Default: max(1, max_concurrency/4), clamped so
+  # heavy jobs keep >= 1 slot.
+  # fast_lane_reserved: 0
   # Artifact cache (C-2): reuse the compiled output of identical submissions
   # (same source + flags + toolchain version). Verdict-neutral — only the build
   # step is reused; the run phase still executes live per test. The key includes

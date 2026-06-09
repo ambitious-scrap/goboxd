@@ -82,6 +82,20 @@ Go 1.22+. nsjail is built from source as a git submodule (`external/nsjail`, tag
 
 [docs/security.md](docs/security.md)
 
+## Observability
+
+`goboxd` exposes Prometheus metrics on a separate admin port (`:9090` by default; set
+`-metrics-port=-1` to disable), kept off the public API. `docker compose up` brings up the full stack:
+
+- **goboxd** — API on `:8080`, metrics on `:9090`
+- **Prometheus** — scrapes `goboxd:9090` every 5s; UI on [localhost:9091](http://localhost:9091)
+- **Grafana** — dashboard auto-provisioned at [localhost:3000](http://localhost:3000) (anonymous admin)
+
+The bundled dashboard (`deploy/grafana/dashboards/goboxd.json`) charts run throughput by verdict,
+build/run latency p95, queue depth & in-flight, 503 reject rate, cache hit ratio, and admission wait
+p95 by lane (light vs heavy — see the fast-lane reservation in [docs/architecture.md](docs/architecture.md)).
+Scrape config and provisioning live under `deploy/`.
+
 ## Framework
 
 `net/http` + `chi` for routing. Three read-only endpoints and one POST don't justify a heavier framework; chi adds request-id middleware and a panic recovery handler without pulling in a runtime.

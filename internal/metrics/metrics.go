@@ -37,8 +37,9 @@ type Metrics struct {
 	// labelled by language and phase.
 	RunDuration *prometheus.HistogramVec
 	// QueueWait is the time a request spent waiting for a concurrency slot, in
-	// seconds. Ties to the scheduler work in Part C-1 of the backlog.
-	QueueWait prometheus.Histogram
+	// seconds, labelled by admission lane (light|heavy). Ties to the scheduler
+	// work in Part C-1 of the backlog and the fast-lane reservation.
+	QueueWait *prometheus.HistogramVec
 	// InFlight is the number of runs currently executing (post-admission).
 	InFlight prometheus.Gauge
 	// RequestsTotal counts admitted /run requests.
@@ -77,11 +78,11 @@ func New() *Metrics {
 			// tens of seconds (compiled, large limits).
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
 		}, []string{"language", "phase"}),
-		QueueWait: prometheus.NewHistogram(prometheus.HistogramOpts{
+		QueueWait: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "goboxd_queue_wait_seconds",
-			Help:    "Time a request waited for a concurrency slot, in seconds.",
+			Help:    "Time a request waited for a concurrency slot, in seconds, by admission lane.",
 			Buckets: []float64{0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-		}),
+		}, []string{"lane"}),
 		InFlight: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "goboxd_inflight",
 			Help: "Runs currently executing (after admission).",

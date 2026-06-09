@@ -26,6 +26,15 @@ type ServerConfig struct {
 	// compiles can no longer starve light interpreted runs. 0 or >=
 	// MaxConcurrency disables the separate lane. Default: max(1, MaxConcurrency/2).
 	MaxBuildConcurrency int `yaml:"max_build_concurrency"`
+	// FastLaneReserved reserves this many of the MaxConcurrency run slots so they
+	// can never be held by heavy (compiled, build != nil) jobs — guaranteeing
+	// light interpreted jobs always have admission headroom even when compiled
+	// jobs saturate the pool. Heavy jobs are thus capped at
+	// MaxConcurrency-FastLaneReserved concurrent. This is pure admission ordering:
+	// it never mutates per-run limits, so verdicts stay load-independent. 0
+	// disables the reservation (every job competes for the full pool, as before).
+	// Default: max(1, MaxConcurrency/4), clamped so heavy jobs keep >=1 slot.
+	FastLaneReserved int `yaml:"fast_lane_reserved"`
 	// CacheEnabled toggles the content-addressed artifact cache (compiled
 	// languages only). A pointer so an absent value defaults to true while an
 	// explicit `cache_enabled: false` disables it. Default: true.

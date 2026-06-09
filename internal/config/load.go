@@ -51,6 +51,18 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.MaxBuildConcurrency == 0 {
 		cfg.Server.MaxBuildConcurrency = max(1, cfg.Server.MaxConcurrency/2)
 	}
+	// Fast-lane reservation. Default to a quarter of the pool; clamp into
+	// [0, MaxConcurrency-1] so heavy jobs always keep at least one slot and the
+	// reservation can never deadlock a single-slot server.
+	if cfg.Server.FastLaneReserved == 0 {
+		cfg.Server.FastLaneReserved = max(1, cfg.Server.MaxConcurrency/4)
+	}
+	if cfg.Server.FastLaneReserved < 0 {
+		cfg.Server.FastLaneReserved = 0
+	}
+	if cfg.Server.FastLaneReserved > cfg.Server.MaxConcurrency-1 {
+		cfg.Server.FastLaneReserved = max(0, cfg.Server.MaxConcurrency-1)
+	}
 	if cfg.Server.CacheEnabled == nil {
 		enabled := true
 		cfg.Server.CacheEnabled = &enabled

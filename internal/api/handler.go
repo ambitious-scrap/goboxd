@@ -24,10 +24,16 @@ import (
 
 // Server holds all dependencies for the HTTP layer.
 type Server struct {
-	cfg       *config.Config
-	reg       *registry.Registry
-	runner    *runner.Runner
+	cfg    *config.Config
+	reg    *registry.Registry
+	runner *runner.Runner
+	// sem caps total concurrent admitted runs (MaxConcurrency). heavy further
+	// caps compiled (build != nil) jobs at MaxConcurrency-FastLaneReserved, so a
+	// burst of slow compiled jobs can never starve light interpreted jobs of
+	// admission. Acquire order is heavy-then-sem for heavy jobs; light jobs take
+	// sem only. Light never holds heavy, so the ordering cannot deadlock.
 	sem       chan struct{}
+	heavy     chan struct{}
 	metrics   *metrics.Metrics
 	smokes    map[string]registry.SmokeResult
 	buildInfo BuildInfo
@@ -63,6 +69,7 @@ func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smo
 		reg:            reg,
 		runner:         r,
 		sem:            make(chan struct{}, cfg.Server.MaxConcurrency),
+		heavy:          make(chan struct{}, max(1, cfg.Server.MaxConcurrency-cfg.Server.FastLaneReserved)),
 		metrics:        metrics.New(),
 		smokes:         smokes,
 		buildInfo:      bi,
@@ -279,7 +286,22 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Acquire concurrency slot (block until available or context cancelled).
+	// Compiled (build != nil) jobs first take a heavy-lane token, capped below
+	// MaxConcurrency, so they can never occupy the slots reserved for light
+	// interpreted jobs. Order is heavy-then-sem; light jobs skip the heavy lane.
+	// Light jobs never hold heavy, so the lock order cannot deadlock.
+	lane := "light"
 	waitStart := time.Now()
+	if lang.Build != nil {
+		lane = "heavy"
+		select {
+		case s.heavy <- struct{}{}:
+			defer func() { <-s.heavy }()
+		case <-ctx.Done():
+			writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for slot")
+			return
+		}
+	}
 	select {
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()
@@ -287,7 +309,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for slot")
 		return
 	}
-	s.metrics.QueueWait.Observe(time.Since(waitStart).Seconds())
+	s.metrics.QueueWait.WithLabelValues(lane).Observe(time.Since(waitStart).Seconds())
 
 	obs.InFlight.Add(1)
 	obs.TotalRequests.Add(1)

@@ -1,14 +1,15 @@
-# goboxd — Personal README (version `5a6e32d`, 2026-06-09)
+# goboxd — Personal README (version `5a6e32d` + fast-lane & Grafana, 2026-06-09)
 
 A deep, feature-by-feature walkthrough of **goboxd**: a sandboxed code-execution and
 grading service. It accepts source code + test cases over HTTP, compiles/runs the code
 inside hardened [nsjail](https://github.com/google/nsjail) sandboxes, compares output
 against expected results, and returns a per-test verdict.
 
-This document describes the codebase **as of commit `5a6e32d`** — the point at which the
-full event-prep hardening backlog (seccomp, cgroup CPU/PID controls, Prometheus metrics,
-the C-1 scheduler, and the C-2 artifact cache) is shipped. It is the long-form companion to
-the terse top-level `README.md`.
+This document describes the codebase **as of branch `c1-scheduler-c2-cache`** (base commit
+`5a6e32d`) — the point at which the full event-prep hardening backlog (seccomp, cgroup
+CPU/PID controls, Prometheus metrics, the C-1 scheduler, the C-2 artifact cache, the C-3
+fast-lane fairness reservation, and a `docker compose` Prometheus + Grafana stack) is
+shipped. It is the long-form companion to the terse top-level `README.md`.
 
 > **Design holy-grail:** *verdicts must be a pure function of `(source, tests, limits)` —
 > load-independent.* No feature in this service is allowed to change a verdict based on how
@@ -278,6 +279,19 @@ Replaces the old bare semaphore (which parked unbounded goroutines under flood).
 - Auto-disables when `MaxBuildConcurrency >= MaxConcurrency` (no point capping). The
   build-lane wait time is exposed as `goboxd_build_wait_seconds`.
 
+### Fast-lane fairness (C-3, `internal/api/handler.go`)
+- The build lane throttles *compiles*, but light interpreted jobs still competed with heavy
+  compiled jobs for the same run slots — a burst of slow `java`/`cpp` runs could head-of-line
+  block a `py3` run. Fixed with a second admission cap.
+- Heavy jobs (`lang.Build != nil`) take a token from a `heavy` semaphore of size
+  `MaxConcurrency - FastLaneReserved` **before** acquiring a run slot; light jobs skip it. So
+  `FastLaneReserved` run slots (default `max(1, MaxConcurrency/4)`) can never be held by heavy
+  jobs — light requests always have admission headroom.
+- **Lock ordering (deadlock-free):** heavy = `heavy` then run-slot; light = run-slot only. Light
+  never holds `heavy`. The heavy lane is clamped to `>= 1`; `FastLaneReserved = 0` disables it.
+- Pure admission ordering — never mutates per-run limits, so verdicts stay load-independent.
+  Admission wait is exposed per lane as `goboxd_queue_wait_seconds{lane}`.
+
 **Benchmarked:** under c=100 overload on a 4-CPU box, admitted requests hold a flat ~32 ms
 p95 while the overflow gets 503s — vs the pre-C-1 behavior where everyone queued and p95
 climbed to 368 ms. See `docs/benchmarks.md` (2026-06-09).
@@ -327,7 +341,7 @@ request-id, or filename):
 |---|---|---|
 | `goboxd_runs_total{language,verdict}` | counter | completed runs by verdict |
 | `goboxd_run_duration_seconds{language,phase}` | histogram | build vs run wall time |
-| `goboxd_queue_wait_seconds` | histogram | time waiting for a run slot |
+| `goboxd_queue_wait_seconds{lane}` | histogram | time waiting for a run slot, by admission lane (light\|heavy) |
 | `goboxd_inflight` | gauge | runs currently executing |
 | `goboxd_requests_total` | counter | admitted /run requests |
 | `goboxd_internal_errors_total` | counter | server-side failures |
@@ -335,6 +349,12 @@ request-id, or filename):
 | `goboxd_rejected_total` | counter | 503 admission sheds (C-1) |
 | `goboxd_cache_hits_total{language}` / `…_misses_total{language}` | counter | artifact cache (C-2) |
 | `goboxd_build_wait_seconds` | histogram | build-lane wait (C-1) |
+
+A `docker compose up` brings up a full stack: goboxd (API `:8080`, metrics `:9090`), Prometheus
+(scrapes `goboxd:9090`, UI `:9091`), and Grafana (`:3000`, anonymous admin) with an
+auto-provisioned dashboard. Scrape config + provisioning live under `deploy/`. The dashboard
+charts throughput by verdict, latency p95, queue/in-flight, 503 rate, cache hit ratio, and
+admission wait by lane.
 
 Plus standard Go runtime + process collectors.
 
@@ -353,6 +373,7 @@ free, uptime).
 | `metrics_port` | 9090 | admin metrics port (≤0 disables) |
 | `max_concurrency` | `runtime.NumCPU()` | concurrent run slots |
 | `max_queue` | `2 × max_concurrency` | extra waiters before 503 (C-1) |
+| `fast_lane_reserved` | `max(1, max_concurrency/4)` | run slots reserved for light jobs (C-3); `0` disables |
 | `max_build_concurrency` | `max(1, max_concurrency/2)` | build-lane cap (C-1); 0 or ≥ max_concurrency disables |
 | `cache_enabled` | `true` | artifact cache on/off (C-2) |
 | `cache_dir` | `/tmp/goboxd-cache` | cache storage dir |

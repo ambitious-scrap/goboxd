@@ -50,6 +50,7 @@ These are verified technical features and patterns from competing submissions th
 
 ### 2. Shortest Job First (SJF) Heap Scheduling with Starvation Aging
 *   **Current State**: FIFO queueing can lead to Head-of-Line blocking where a batch of heavy compilation jobs starves quick Python runs.
+*   **Shipped (C-3, partial)**: A **fast-lane reservation** now addresses the head-of-line case without a full priority queue. Heavy (compiled) jobs are capped by a `heavy` semaphore of size `MaxConcurrency - FastLaneReserved`, guaranteeing reserved run slots for light interpreted jobs. Pure admission ordering — verdicts stay load-independent. See `docs/architecture.md` and `PERSONAL_README.md` §7. A full cost-scored heap (below) remains future work.
 *   **Improvement**: Implement a Priority Queue (Min-Heap) scheduler.
     *   **Cost Score**: Estimate execution complexity at insertion:
         $$\text{Job Cost} = \text{Wall Time Limit} \times \left(1.0 + \frac{\text{Memory Limit in KB}}{1048576.0}\right) \times \text{Test Case Count}$$

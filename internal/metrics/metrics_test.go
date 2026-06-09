@@ -32,10 +32,9 @@ func TestNew_RegistersAndServes(t *testing.T) {
 	m := New()
 	body := scrape(t, m)
 	// Non-vec collectors emit a zero sample (and HELP) before any observation.
-	// Labelled vecs (runs_total, run_duration) have no children until first use,
-	// so they only appear after ObserveRun — covered by the tests below.
+	// Labelled vecs (runs_total, run_duration, queue_wait) have no children until
+	// first use, so they only appear after an observation — covered below.
 	for _, name := range []string{
-		"goboxd_queue_wait_seconds",
 		"goboxd_inflight",
 		"goboxd_requests_total",
 		"goboxd_internal_errors_total",
@@ -47,6 +46,11 @@ func TestNew_RegistersAndServes(t *testing.T) {
 	// Standard Go/process collectors registered.
 	if !strings.Contains(body, "go_goroutines") {
 		t.Error("Go collector not registered")
+	}
+	// queue_wait is labelled by lane; it materializes after the first observation.
+	m.QueueWait.WithLabelValues("light").Observe(0.01)
+	if body := scrape(t, m); !strings.Contains(body, `goboxd_queue_wait_seconds_count{lane="light"} 1`) {
+		t.Errorf("queue_wait not recorded by lane:\n%s", body)
 	}
 }
 
