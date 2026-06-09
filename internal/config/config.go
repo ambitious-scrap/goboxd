@@ -46,6 +46,16 @@ type Limits struct {
 	WallTimeS    int `yaml:"wall_time_s"`
 	MemoryKB     int `yaml:"memory_kb"`
 	MaxProcesses int `yaml:"max_processes"`
+	// CPUMaxPercent caps CPU bandwidth via the cgroup v2 cpu controller, as a
+	// percentage of one core (100 = one full core, 200 = two cores). It is a
+	// server-side, per-language control only: it is NOT part of the request
+	// limit schema (spec request limits are wall_time_s/memory_kb/max_processes),
+	// so a request cannot raise or lower it. 0 means unlimited (cpu.max=max).
+	//
+	// Note: a sub-core quota (<100) throttles the process and inflates wall-clock
+	// time, which can trip the wall_time_s limit. Leave at 0 unless graded on
+	// CPU-time rather than wall-time.
+	CPUMaxPercent int `yaml:"cpu_max_percent"`
 }
 
 type SmokeProbe struct {

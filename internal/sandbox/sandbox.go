@@ -85,7 +85,7 @@ func Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 	// Dedicated cgroup for this run, named after the (unique) workdir, giving
 	// per-request memory accounting. Best-effort: if unavailable, cg.ok is false
 	// and we fall back to rlimit-only enforcement.
-	cg := setupCgroup(filepath.Base(cfg.WorkDir), cfg.Limits.MemoryKB)
+	cg := setupCgroup(filepath.Base(cfg.WorkDir), cfg.Limits.MemoryKB, cfg.Limits.MaxProcesses, cfg.Limits.CPUMaxPercent)
 	defer cg.cleanup()
 
 	argv := buildNsjailArgs(cfg, cg)
