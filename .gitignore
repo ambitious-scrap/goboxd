@@ -27,3 +27,6 @@
 
 # macOS junk
 .DS_Store
+
+# Serena tooling — kept local
+/.serena/
