@@ -34,6 +34,7 @@ var (
 func main() {
 	cfgPath := flag.String("config", "configs/languages.yaml", "path to config file")
 	port := flag.Int("port", 0, "port override (default from config)")
+	metricsPort := flag.Int("metrics-port", 0, "Prometheus /metrics admin port override (-1 disables; default from config)")
 	jailBase := flag.String("jail-base", "", "jail base dir override")
 	flag.Parse()
 
@@ -44,6 +45,9 @@ func main() {
 	}
 	if *port != 0 {
 		cfg.Server.Port = *port
+	}
+	if *metricsPort != 0 {
+		cfg.Server.MetricsPort = *metricsPort // -1 disables the admin endpoint
 	}
 	if *jailBase != "" {
 		cfg.Server.JailBase = *jailBase
@@ -112,11 +116,37 @@ func main() {
 		}
 	}()
 
+	// Prometheus /metrics on a separate admin port, kept off the public API so
+	// submitters can't scrape internal operational detail. A non-positive port
+	// disables it.
+	var metricsSrv *http.Server
+	if cfg.Server.MetricsPort > 0 {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", srv.MetricsHandler())
+		metricsSrv = &http.Server{
+			Addr:         fmt.Sprintf(":%d", cfg.Server.MetricsPort),
+			Handler:      mux,
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		}
+		go func() {
+			slog.Info("metrics listening", "addr", metricsSrv.Addr)
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("metrics server error", "err", err)
+			}
+		}()
+	}
+
 	<-ctx.Done()
 	slog.Info("shutting down...")
 	shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := httpSrv.Shutdown(shutCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
+	}
+	if metricsSrv != nil {
+		if err := metricsSrv.Shutdown(shutCtx); err != nil {
+			slog.Error("metrics shutdown error", "err", err)
+		}
 	}
 }

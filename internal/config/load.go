@@ -16,6 +16,7 @@ const (
 	defaultJailBase       = "/tmp/goboxd"
 	defaultNsjailPath     = "/usr/local/bin/nsjail"
 	defaultMaxTests       = 100
+	defaultMetricsPort    = 9090
 )
 
 func Load(path string) (*Config, error) {
@@ -61,6 +62,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.SeccompMode == "" {
 		cfg.Server.SeccompMode = "off"
+	}
+	if cfg.Server.MetricsPort == 0 {
+		cfg.Server.MetricsPort = defaultMetricsPort
 	}
 	for i := range cfg.Languages {
 		applyLanguageDefaults(&cfg.Languages[i])

@@ -7,6 +7,7 @@ type Config struct {
 
 type ServerConfig struct {
 	Port           int    `yaml:"port"`
+	MetricsPort    int    `yaml:"metrics_port"`
 	MaxConcurrency int    `yaml:"max_concurrency"`
 	MaxBodyBytes   int    `yaml:"max_body_bytes"`
 	MaxSourceBytes int    `yaml:"max_source_bytes"`
