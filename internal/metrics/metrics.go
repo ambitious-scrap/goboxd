@@ -45,6 +45,19 @@ type Metrics struct {
 	RequestsTotal prometheus.Counter
 	// InternalErrors counts runs that failed with a server-side error.
 	InternalErrors prometheus.Counter
+	// QueueDepth is the number of /run requests currently in the admission
+	// section (waiting for a slot plus running). Ties to the C-1 scheduler.
+	QueueDepth prometheus.Gauge
+	// RejectedTotal counts /run requests shed at admission (503 server_busy)
+	// because the queue was saturated.
+	RejectedTotal prometheus.Counter
+	// CacheHits / CacheMisses count artifact-cache outcomes by language (the
+	// fixed configured set — bounded cardinality). Proves the C-2 cache's value.
+	CacheHits   *prometheus.CounterVec
+	CacheMisses *prometheus.CounterVec
+	// BuildWait is the time a build step waited for a build-lane token, in
+	// seconds. Ties to the C-1 build lane.
+	BuildWait prometheus.Histogram
 }
 
 // New builds a Metrics with a private registry and all collectors registered.
@@ -81,6 +94,27 @@ func New() *Metrics {
 			Name: "goboxd_internal_errors_total",
 			Help: "Runs that failed with a server-side error.",
 		}),
+		QueueDepth: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "goboxd_queue_depth",
+			Help: "Requests currently in the admission section (waiting + running).",
+		}),
+		RejectedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "goboxd_rejected_total",
+			Help: "Requests shed at admission (503) because the queue was full.",
+		}),
+		CacheHits: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "goboxd_cache_hits_total",
+			Help: "Artifact-cache hits by language.",
+		}, []string{"language"}),
+		CacheMisses: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "goboxd_cache_misses_total",
+			Help: "Artifact-cache misses by language.",
+		}, []string{"language"}),
+		BuildWait: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "goboxd_build_wait_seconds",
+			Help:    "Time a build step waited for a build-lane token, in seconds.",
+			Buckets: []float64{0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+		}),
 	}
 
 	reg.MustRegister(
@@ -90,6 +124,11 @@ func New() *Metrics {
 		m.InFlight,
 		m.RequestsTotal,
 		m.InternalErrors,
+		m.QueueDepth,
+		m.RejectedTotal,
+		m.CacheHits,
+		m.CacheMisses,
+		m.BuildWait,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)

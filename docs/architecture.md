@@ -65,7 +65,22 @@ OOM kills are detected via cgroup v2 `memory.events`. Timeouts are detected from
 
 ## Concurrency model
 
-A buffered channel of size `MaxConcurrency` (default `runtime.NumCPU()`) acts as a semaphore. Requests block on slot acquisition, bound by the request context. This means the service queues under load rather than returning errors. The concurrency limit is the only global lock on the hot path; jail dir naming is lock-free (atomic counter).
+A buffered channel of size `MaxConcurrency` (default `runtime.NumCPU()`) acts as the run-slot semaphore. Requests block on slot acquisition, bound by the request context.
+
+**Bounded admission (load shedding).** Before waiting for a slot, each `/run` counts itself as in-system (`waiting` atomic + `goboxd_queue_depth` gauge). When the in-system count exceeds `MaxConcurrency + MaxQueue` (`MaxQueue` defaults to `2 × MaxConcurrency`), the request is shed immediately with `503 server_busy` and a `Retry-After: 2` header instead of parking an unbounded goroutine. This keeps memory bounded under a flood. It is pure traffic control: it never mutates per-run limits, so verdicts remain a load-independent function of `(source, tests, limits)`.
+
+**Build lane.** Compilation is the CPU-heavy phase, so a second semaphore (`buildSem`, size `MaxBuildConcurrency`, default `max(1, MaxConcurrency/2)`) caps concurrent build steps below the run-slot count. A flood of `g++ -O2` jobs can no longer peg every core and starve light interpreted runs. The build token is held only for the compile, never across the run phase. **Lock ordering:** the run-slot semaphore (handler) is always acquired before the build token (runner) — build-token holders are a strict subset of run-slot holders, so no deadlock is possible. The lane is disabled when `MaxBuildConcurrency` is `≤ 0` or `≥ MaxConcurrency`.
+
+The concurrency limits are the only global locks on the hot path; jail dir naming is lock-free (atomic counter).
+
+## Artifact cache
+
+Identical resubmissions (common on contestant retries) skip recompilation via a content-addressed cache of the compiled output (`internal/artifactcache`). The cache is **verdict-neutral**: it stores only the build artifacts (`a.out`, `*.class`, vvp images — every file in the jail workdir except the source), never run results. The run phase always executes live in a fresh jail, per test.
+
+- **Key:** `sha256(langID, toolchainVersion, sha256(source), buildFlags, artifactFilename)`. The toolchain version comes from the per-language smoke probe, so a compiler bump never serves a stale binary. An unknown (empty) toolchain version skips the cache entirely.
+- **Hit:** cached files are copied into the fresh jail (mode bits preserved, so `a.out` stays executable) and the stored build stdout/stderr/duration are replayed; the compile is skipped.
+- **Single-flight:** an in-process keyed mutex spans get → build → put, so identical concurrent submissions compile exactly once.
+- **Eviction:** a count cap (`CacheMaxEntries`, default 512) evicts the oldest entry by mtime on insert; a startup TTL sweep removes stale entries. Only successful builds are cached. All disk/IO errors degrade gracefully to a miss — the cache never fails a run.
 
 ## Performance
 

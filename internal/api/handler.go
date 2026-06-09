@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,6 +32,12 @@ type Server struct {
 	smokes    map[string]registry.SmokeResult
 	buildInfo BuildInfo
 	nsjail    NsjailInfo
+	// waiting counts requests currently in the admission section (waiting for a
+	// run slot plus running). It bounds the queue: when it exceeds
+	// MaxConcurrency+maxQueue, /run sheds load with 503 rather than parking
+	// unbounded goroutines. maxQueue is the extra-waiters cap beyond running.
+	waiting  atomic.Int64
+	maxQueue int
 	// cgroupsEnabled reports whether per-run cgroup v2 memory accounting is
 	// active; false means the sandbox is on the rlimit_as fallback.
 	cgroupsEnabled bool
@@ -61,6 +68,7 @@ func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smo
 		buildInfo:      bi,
 		nsjail:         nsjail,
 		cgroupsEnabled: cgroupsEnabled,
+		maxQueue:       cfg.Server.MaxQueue,
 	}
 }
 
@@ -254,6 +262,22 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	}
 	runLimits := limits.Merge(lang.Run.Limits, runOverride)
 
+	// Bounded admission. Count this request as in-system, and shed load when the
+	// queue is saturated (running set plus the extra-waiters cap) instead of
+	// parking an unbounded goroutine. This is pure traffic control — it never
+	// mutates per-run limits, so verdicts stay load-independent.
+	n := s.waiting.Add(1)
+	defer s.waiting.Add(-1)
+	s.metrics.QueueDepth.Inc()
+	defer s.metrics.QueueDepth.Dec()
+
+	if s.maxQueue > 0 && int(n) > s.cfg.Server.MaxConcurrency+s.maxQueue {
+		w.Header().Set("Retry-After", "2")
+		s.metrics.RejectedTotal.Inc()
+		writeError(w, http.StatusServiceUnavailable, "server_busy", "queue full, retry shortly")
+		return
+	}
+
 	// Acquire concurrency slot (block until available or context cancelled).
 	waitStart := time.Now()
 	select {
@@ -291,6 +315,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		NsjailPath:       s.cfg.Server.NsjailPath,
 		OutputCap:        s.cfg.Server.OutputCapBytes,
 		SeccompMode:      s.cfg.Server.SeccompMode,
+		ToolchainVersion: s.smokes[lang.ID].Version,
 	})
 	if err != nil {
 		obs.TotalErrors.Add(1)
@@ -306,6 +331,13 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	buildSeconds := -1.0
 	if lang.Build != nil {
 		buildSeconds = float64(result.BuildDurationMs) / 1000
+		s.metrics.BuildWait.Observe(float64(result.BuildWaitMs) / 1000)
+		switch result.CacheStatus {
+		case "hit":
+			s.metrics.CacheHits.WithLabelValues(req.Language).Inc()
+		case "miss":
+			s.metrics.CacheMisses.WithLabelValues(req.Language).Inc()
+		}
 	}
 	runSeconds := make([]float64, len(result.Tests))
 	for i, tr := range result.Tests {

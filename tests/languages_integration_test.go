@@ -66,7 +66,7 @@ func TestLanguages_HelloWorld(t *testing.T) {
 		t.Fatalf("create jail base: %v", err)
 	}
 	reg := registry.New(cfg.Languages)
-	r := runner.New(cfg.Server.NsjailPath, cfg.Server.JailBase, cfg.Server.OutputCapBytes)
+	r := runner.New(cfg.Server.NsjailPath, cfg.Server.JailBase, cfg.Server.OutputCapBytes, 0, nil)
 
 	for _, tc := range helloCases {
 		tc := tc

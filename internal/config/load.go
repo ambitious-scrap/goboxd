@@ -9,14 +9,16 @@ import (
 )
 
 const (
-	defaultPort           = 8080
-	defaultMaxBodyBytes   = 4194304 // 4 MiB: whole-request envelope (source + tests)
-	defaultMaxSourceBytes = 262144  // 256 KiB: source field cap (spec)
-	defaultOutputCapBytes = 65536   // 64 KiB
-	defaultJailBase       = "/tmp/goboxd"
-	defaultNsjailPath     = "/usr/local/bin/nsjail"
-	defaultMaxTests       = 100
-	defaultMetricsPort    = 9090
+	defaultPort            = 8080
+	defaultMaxBodyBytes    = 4194304 // 4 MiB: whole-request envelope (source + tests)
+	defaultMaxSourceBytes  = 262144  // 256 KiB: source field cap (spec)
+	defaultOutputCapBytes  = 65536   // 64 KiB
+	defaultJailBase        = "/tmp/goboxd"
+	defaultNsjailPath      = "/usr/local/bin/nsjail"
+	defaultMaxTests        = 100
+	defaultMetricsPort     = 9090
+	defaultCacheDir        = "/tmp/goboxd-cache"
+	defaultCacheMaxEntries = 512
 )
 
 func Load(path string) (*Config, error) {
@@ -41,6 +43,23 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.MaxConcurrency == 0 {
 		cfg.Server.MaxConcurrency = runtime.NumCPU()
+	}
+	// Derived from MaxConcurrency, so resolve it first (above).
+	if cfg.Server.MaxQueue == 0 {
+		cfg.Server.MaxQueue = 2 * cfg.Server.MaxConcurrency
+	}
+	if cfg.Server.MaxBuildConcurrency == 0 {
+		cfg.Server.MaxBuildConcurrency = max(1, cfg.Server.MaxConcurrency/2)
+	}
+	if cfg.Server.CacheEnabled == nil {
+		enabled := true
+		cfg.Server.CacheEnabled = &enabled
+	}
+	if cfg.Server.CacheDir == "" {
+		cfg.Server.CacheDir = defaultCacheDir
+	}
+	if cfg.Server.CacheMaxEntries == 0 {
+		cfg.Server.CacheMaxEntries = defaultCacheMaxEntries
 	}
 	if cfg.Server.MaxBodyBytes == 0 {
 		cfg.Server.MaxBodyBytes = defaultMaxBodyBytes

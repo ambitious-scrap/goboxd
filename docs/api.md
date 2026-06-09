@@ -105,9 +105,12 @@ All errors: `{"error": {"code": "...", "message": "..."}}`
 | 400 | `invalid_filename` | Source/artifact filename failed validation |
 | 400 | `invalid_flag` | Build or run flag not in the per-step allowlist |
 | 400 | `too_many_tests` | More than `max_tests` test cases supplied |
+| 503 | `server_busy` | Admission queue saturated; load shed at the door |
 | 500 | `internal_error` | Server-side failure (nsjail missing, disk full, etc.) |
 
 **User code crashing is never a 5xx.** A crash returns `200` with `status: runtime_error`.
+
+**Backpressure.** Under load `/run` may return `503 server_busy` with a `Retry-After` header (seconds) once in-system requests exceed `max_concurrency + max_queue`. This is pure traffic control — retry after the indicated delay. Shedding never alters per-run limits, so a resubmitted request grades identically to one run on an idle server.
 
 ---
 

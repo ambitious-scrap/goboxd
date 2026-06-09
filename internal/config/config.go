@@ -15,6 +15,27 @@ type ServerConfig struct {
 	NsjailPath     string `yaml:"nsjail_path"`
 	OutputCapBytes int    `yaml:"output_cap_bytes"`
 	MaxTests       int    `yaml:"max_tests"`
+	// MaxQueue bounds the number of requests waiting beyond the running set.
+	// When in-system requests exceed MaxConcurrency+MaxQueue, /run sheds load
+	// with 503 + Retry-After instead of parking unbounded goroutines. This is
+	// pure traffic control: it never mutates per-run limits, so verdicts stay
+	// load-independent. Default: 2 * MaxConcurrency.
+	MaxQueue int `yaml:"max_queue"`
+	// MaxBuildConcurrency caps concurrent build (compile) steps below
+	// MaxConcurrency, since compilation is the CPU-heavy phase — a flood of
+	// compiles can no longer starve light interpreted runs. 0 or >=
+	// MaxConcurrency disables the separate lane. Default: max(1, MaxConcurrency/2).
+	MaxBuildConcurrency int `yaml:"max_build_concurrency"`
+	// CacheEnabled toggles the content-addressed artifact cache (compiled
+	// languages only). A pointer so an absent value defaults to true while an
+	// explicit `cache_enabled: false` disables it. Default: true.
+	CacheEnabled *bool `yaml:"cache_enabled"`
+	// CacheDir is the host directory for cached build artifacts. Default:
+	// /tmp/goboxd-cache.
+	CacheDir string `yaml:"cache_dir"`
+	// CacheMaxEntries caps the number of cached entries; the oldest are evicted
+	// on insert. Default: 512.
+	CacheMaxEntries int `yaml:"cache_max_entries"`
 	// SeccompMode controls nsjail seccomp-bpf filtering, applied to every run:
 	//   "off"     — no syscall filter (default; current behaviour, no regression)
 	//   "audit"   — load the per-language policy AND pass --seccomp_log, so

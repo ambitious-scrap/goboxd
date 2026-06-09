@@ -6,6 +6,23 @@ server:
   jail_base: /tmp/goboxd
   nsjail_path: /usr/local/bin/nsjail
   output_cap_bytes: 65536
+  # Admission control (C-1). max_queue bounds requests waiting beyond the running
+  # set: when in-system requests exceed max_concurrency + max_queue, /run sheds
+  # load with 503 + Retry-After rather than parking unbounded goroutines. This is
+  # pure traffic control — it never mutates per-run limits, so verdicts stay
+  # load-independent. Default: 2 * max_concurrency.
+  # max_queue: 0
+  # max_build_concurrency caps concurrent compile steps below max_concurrency, so
+  # a flood of heavy compiles can't starve light interpreted runs. 0 or a value
+  # >= max_concurrency disables the separate lane. Default: max(1, max_concurrency/2).
+  # max_build_concurrency: 0
+  # Artifact cache (C-2): reuse the compiled output of identical submissions
+  # (same source + flags + toolchain version). Verdict-neutral — only the build
+  # step is reused; the run phase still executes live per test. The key includes
+  # the toolchain version, so a compiler bump never serves a stale binary.
+  cache_enabled: true
+  cache_dir: /tmp/goboxd-cache
+  cache_max_entries: 512
   # seccomp-bpf syscall filtering: off | audit | enforce.
   # off     = no filter (default). audit = load each language's seccomp_policy
   # and add --seccomp_log (observe, don't kill — pair with a permissive policy

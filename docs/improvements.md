@@ -104,6 +104,14 @@ directionally good; three items need correction (one is unsafe as written, one i
 spec-violating, one under-specifies its cache key).
 
 ### C-1. Shortest-Job-First scheduling with starvation aging
+**Status: DONE** (bounded admission + build lane). Shipped the "two classes / explicit
+build cap" improvement below, not the rejected min-heap. `/run` now bounds the queue
+(`waiting` atomic + `goboxd_queue_depth`) and sheds excess with `503 + Retry-After` when
+in-system requests exceed `MaxConcurrency + MaxQueue` (`internal/api/handler.go`); a
+separate `buildSem` of size `MaxBuildConcurrency` caps concurrent compiles below the
+run-slot count (`internal/runner/runner.go`). No limit mutation; verdicts unchanged.
+SJF/EMA priority reordering remains deferred (no job-size signal).
+
 **Memo:** replace the FIFO semaphore with a min-heap priority queue; cost =
 `wall_time × (1 + mem_GB) × test_count`; subtract `wait_seconds × multiplier` for aging.
 
@@ -129,6 +137,13 @@ Improvements:
   of the class split.
 
 ### C-2. Compiler & artifact caching
+**Status: DONE** (artifact cache). New `internal/artifactcache`: content-addressed,
+toolchain-versioned key, caches the build artifact only (never run results), copies into
+a fresh jail on hit and replays the build output, single-flight per key, count-cap
+eviction + startup TTL sweep, graceful degradation to a miss on any IO error. Negative-
+caching of build failures is deferred (keeps the model trivially verdict-safe); the user
+chose artifact-only over a full result cache.
+
 **Memo:** hash source + flags, store compiled artifact under `/tmp/goboxd/cache/`, skip
 build on hash hit.
 

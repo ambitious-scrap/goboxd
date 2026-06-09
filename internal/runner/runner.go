@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/thesouldev/goboxd/internal/artifactcache"
 	"github.com/thesouldev/goboxd/internal/config"
 	"github.com/thesouldev/goboxd/internal/jail"
 	"github.com/thesouldev/goboxd/internal/registry"
@@ -58,6 +59,10 @@ type RunRequest struct {
 	NsjailPath       string
 	OutputCap        int
 	SeccompMode      string // server-wide: off|audit|enforce
+	// ToolchainVersion is the language's smoke-probe version string. It is part
+	// of the artifact-cache key so a toolchain bump never serves a stale binary.
+	// When empty, the cache is skipped entirely for this request.
+	ToolchainVersion string
 }
 
 // RunResult is the fully computed outcome of a submission.
@@ -68,6 +73,13 @@ type RunResult struct {
 	BuildStderr     string
 	Tests           []TestResult
 	TopStatus       string
+	// CacheStatus reports the artifact-cache outcome for the build phase:
+	// "hit", "miss", or "" when the cache was not consulted (interpreted
+	// language, cache disabled, or unknown toolchain version).
+	CacheStatus string
+	// BuildWaitMs is the time the build step spent waiting for a build-lane
+	// token, in milliseconds. 0 when there is no build lane or no build step.
+	BuildWaitMs int64
 }
 
 // Runner orchestrates build + test execution.
@@ -75,20 +87,42 @@ type Runner struct {
 	sb        SandboxRunner
 	jailBase  string
 	outputCap int
+	// buildSem caps concurrent build steps (the C-1 build lane). nil disables
+	// the lane (no extra cap beyond the handler's run-slot semaphore).
+	buildSem chan struct{}
+	// cache is the content-addressed artifact cache (C-2). nil disables caching.
+	cache *artifactcache.Cache
 }
 
-// New creates a Runner using the real nsjail sandbox.
-func New(nsjailPath, jailBase string, outputCap int) *Runner {
+// New creates a Runner using the real nsjail sandbox. maxBuildConcurrency caps
+// concurrent build steps (<=0 disables the build lane); cache may be nil to
+// disable artifact caching.
+func New(nsjailPath, jailBase string, outputCap, maxBuildConcurrency int, cache *artifactcache.Cache) *Runner {
 	return &Runner{
 		sb:        &defaultSandbox{nsjailPath: nsjailPath},
 		jailBase:  jailBase,
 		outputCap: outputCap,
+		buildSem:  newBuildSem(maxBuildConcurrency),
+		cache:     cache,
 	}
 }
 
 // NewWithSandbox creates a Runner with a custom sandbox (for testing).
-func NewWithSandbox(sb SandboxRunner, jailBase string, outputCap int) *Runner {
-	return &Runner{sb: sb, jailBase: jailBase, outputCap: outputCap}
+func NewWithSandbox(sb SandboxRunner, jailBase string, outputCap, maxBuildConcurrency int, cache *artifactcache.Cache) *Runner {
+	return &Runner{
+		sb:        sb,
+		jailBase:  jailBase,
+		outputCap: outputCap,
+		buildSem:  newBuildSem(maxBuildConcurrency),
+		cache:     cache,
+	}
+}
+
+func newBuildSem(n int) chan struct{} {
+	if n <= 0 {
+		return nil
+	}
+	return make(chan struct{}, n)
 }
 
 // Execute runs a full submission: optional build, then each test case.
@@ -126,29 +160,11 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 
 	// Build phase (compiled languages only).
 	if req.Language.Build != nil {
-		args := registry.Resolve(req.Language.Build.Args, vars)
-		args = registry.ExpandFlags(args, req.BuildFlags)
-
-		start := time.Now()
-		br, err := r.sb.Run(ctx, sandbox.RunConfig{
-			WorkDir:   jailPath,
-			Cmd:           registry.ResolveOne(req.Language.Build.Cmd, vars),
-			Args:          args,
-			Limits:        buildLimits,
-			OutputCap:     r.outputCap,
-			SeccompMode:   req.SeccompMode,
-			SeccompPolicy: req.Language.SeccompPolicy,
-		})
-		res.BuildDurationMs = time.Since(start).Milliseconds()
-
+		buildFailed, err := r.buildPhase(ctx, req, jailPath, vars, buildLimits, srcFilename, res)
 		if err != nil {
-			return nil, fmt.Errorf("build exec: %w", err)
+			return nil, err
 		}
-		res.BuildStdout = br.Stdout
-		res.BuildStderr = br.Stderr
-
-		if br.ExitCode != 0 {
-			res.BuildStatus = status.BuildFailed // build.status = "failed"
+		if buildFailed {
 			res.Tests = make([]TestResult, len(req.Tests))
 			for i := range res.Tests {
 				res.Tests[i].Status = status.NotExecuted
@@ -156,7 +172,6 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 			res.TopStatus = status.TopBuildFailed // top-level = "build_failed"
 			return res, nil
 		}
-		res.BuildStatus = status.BuildOK
 	}
 
 	// Run phase — one sandbox call per test case.
@@ -170,9 +185,9 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 	for i, tc := range req.Tests {
 		start := time.Now()
 		rr, err := r.sb.Run(ctx, sandbox.RunConfig{
-			WorkDir:   jailPath,
-			Cmd:       runCmd,
-			Args:      runArgs,
+			WorkDir:       jailPath,
+			Cmd:           runCmd,
+			Args:          runArgs,
 			Stdin:         tc.Stdin,
 			Limits:        runLimits,
 			OutputCap:     r.outputCap,
@@ -210,6 +225,103 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 
 	res.TopStatus = status.TopLevel(res.BuildStatus, testStatuses)
 	return res, nil
+}
+
+// buildPhase resolves the compile step against the artifact cache: a hit
+// replays the stored build output and skips compilation; a miss compiles live
+// (gated by the build lane) and caches a successful result. It returns whether
+// the build failed (so Execute can mark tests not_executed) and any internal
+// error. The single-flight key lock is scoped to this method — released before
+// the run phase — so identical concurrent submissions compile once but still run
+// their tests in parallel. It mutates res in place with the build fields.
+func (r *Runner) buildPhase(ctx context.Context, req RunRequest, jailPath string, vars map[string]string, buildLimits config.Limits, srcFilename string, res *RunResult) (buildFailed bool, err error) {
+	artifactFilename := req.Language.Artifact
+	if req.ArtifactFilename != "" {
+		artifactFilename = req.ArtifactFilename
+	}
+
+	// Artifact cache: serve a previously compiled binary when source + flags +
+	// toolchain match. The single-flight lock spans the get -> build -> put
+	// sequence so identical concurrent submissions compile exactly once. An
+	// unknown toolchain version skips the cache.
+	cacheable := r.cache != nil && req.ToolchainVersion != ""
+	var key string
+	if cacheable {
+		key = artifactcache.Key(req.Language.ID, req.ToolchainVersion, req.Source, req.BuildFlags, artifactFilename)
+		unlock := r.cache.Lock(key)
+		defer unlock()
+		if meta, ok := r.cache.Get(key, jailPath); ok {
+			res.CacheStatus = "hit"
+			res.BuildStatus = status.BuildOK
+			res.BuildStdout = meta.BuildStdout
+			res.BuildStderr = meta.BuildStderr
+			res.BuildDurationMs = meta.BuildDurationMs
+			return false, nil
+		}
+		res.CacheStatus = "miss"
+	}
+
+	// Miss (or uncached language): compile live, gated by the build lane.
+	br, waitMs, durMs, err := r.build(ctx, req, jailPath, vars, buildLimits)
+	res.BuildWaitMs = waitMs
+	res.BuildDurationMs = durMs
+	if err != nil {
+		return false, fmt.Errorf("build exec: %w", err)
+	}
+	res.BuildStdout = br.Stdout
+	res.BuildStderr = br.Stderr
+
+	if br.ExitCode != 0 {
+		res.BuildStatus = status.BuildFailed // build.status = "failed"
+		return true, nil
+	}
+	res.BuildStatus = status.BuildOK
+
+	// Populate the cache from this successful build (best-effort).
+	if cacheable {
+		_ = r.cache.Put(key, jailPath, srcFilename, artifactcache.Meta{
+			BuildStdout:     br.Stdout,
+			BuildStderr:     br.Stderr,
+			BuildDurationMs: durMs,
+		})
+	}
+	return false, nil
+}
+
+// build executes the compile step, gated by the build-lane semaphore. The build
+// token is acquired only for the duration of the compile and released on return
+// (never held across the run phase), preserving the lock-ordering invariant:
+// the run-slot semaphore (handler) is always acquired before the build token.
+// It returns the sandbox result, the build-lane wait time, and the compile wall
+// time, both in milliseconds.
+func (r *Runner) build(ctx context.Context, req RunRequest, jailPath string, vars map[string]string, buildLimits config.Limits) (*sandbox.Result, int64, int64, error) {
+	var waitMs int64
+	if r.buildSem != nil {
+		waitStart := time.Now()
+		select {
+		case r.buildSem <- struct{}{}:
+			defer func() { <-r.buildSem }()
+		case <-ctx.Done():
+			return nil, 0, 0, ctx.Err()
+		}
+		waitMs = time.Since(waitStart).Milliseconds()
+	}
+
+	args := registry.Resolve(req.Language.Build.Args, vars)
+	args = registry.ExpandFlags(args, req.BuildFlags)
+
+	start := time.Now()
+	br, err := r.sb.Run(ctx, sandbox.RunConfig{
+		WorkDir:       jailPath,
+		Cmd:           registry.ResolveOne(req.Language.Build.Cmd, vars),
+		Args:          args,
+		Limits:        buildLimits,
+		OutputCap:     r.outputCap,
+		SeccompMode:   req.SeccompMode,
+		SeccompPolicy: req.Language.SeccompPolicy,
+	})
+	durMs := time.Since(start).Milliseconds()
+	return br, waitMs, durMs, err
 }
 
 func placeholderVars(req RunRequest, jailPath string) map[string]string {

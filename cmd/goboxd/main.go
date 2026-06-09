@@ -17,6 +17,7 @@ import (
 	_ "go.uber.org/automaxprocs"
 
 	"github.com/thesouldev/goboxd/internal/api"
+	"github.com/thesouldev/goboxd/internal/artifactcache"
 	"github.com/thesouldev/goboxd/internal/config"
 	"github.com/thesouldev/goboxd/internal/jail"
 	"github.com/thesouldev/goboxd/internal/registry"
@@ -60,6 +61,20 @@ func main() {
 	jail.SweepOrphans(cfg.Server.JailBase, 10*time.Minute)
 	sandbox.SweepOrphanCgroups(10 * time.Minute)
 
+	// Artifact cache (compiled languages only). Disabled config or a setup
+	// failure degrades gracefully to "always build".
+	var cache *artifactcache.Cache
+	if cfg.Server.CacheEnabled != nil && *cfg.Server.CacheEnabled {
+		artifactcache.Sweep(cfg.Server.CacheDir, artifactcache.DefaultTTL)
+		c, err := artifactcache.New(cfg.Server.CacheDir, cfg.Server.CacheMaxEntries)
+		if err != nil {
+			slog.Warn("artifact cache disabled", "err", err)
+		} else {
+			cache = c
+			slog.Info("artifact cache enabled", "dir", cfg.Server.CacheDir, "max_entries", cfg.Server.CacheMaxEntries)
+		}
+	}
+
 	reg := registry.New(cfg.Languages)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -75,7 +90,13 @@ func main() {
 		}
 	}
 
-	r := runner.New(cfg.Server.NsjailPath, cfg.Server.JailBase, cfg.Server.OutputCapBytes)
+	// A build lane only helps when it caps below the run-slot count; at or above
+	// MaxConcurrency it's a no-op, so disable it (0) in that case.
+	buildLane := cfg.Server.MaxBuildConcurrency
+	if buildLane >= cfg.Server.MaxConcurrency {
+		buildLane = 0
+	}
+	r := runner.New(cfg.Server.NsjailPath, cfg.Server.JailBase, cfg.Server.OutputCapBytes, buildLane, cache)
 
 	nsjailInfo := api.NsjailInfo{}
 	if err := sandbox.Probe(ctx, cfg.Server.NsjailPath); err != nil {

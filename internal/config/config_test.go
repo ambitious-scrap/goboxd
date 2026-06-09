@@ -35,6 +35,40 @@ func TestLoad_Valid(t *testing.T) {
 	if cfg.Server.Port != 8080 {
 		t.Errorf("expected default port 8080, got %d", cfg.Server.Port)
 	}
+	// C-1/C-2 defaults derive from MaxConcurrency (= NumCPU when unset).
+	if cfg.Server.MaxQueue != 2*cfg.Server.MaxConcurrency {
+		t.Errorf("MaxQueue = %d, want %d", cfg.Server.MaxQueue, 2*cfg.Server.MaxConcurrency)
+	}
+	wantBuild := cfg.Server.MaxConcurrency / 2
+	if wantBuild < 1 {
+		wantBuild = 1
+	}
+	if cfg.Server.MaxBuildConcurrency != wantBuild {
+		t.Errorf("MaxBuildConcurrency = %d, want %d", cfg.Server.MaxBuildConcurrency, wantBuild)
+	}
+	if cfg.Server.CacheEnabled == nil || !*cfg.Server.CacheEnabled {
+		t.Errorf("CacheEnabled = %v, want default true", cfg.Server.CacheEnabled)
+	}
+	if cfg.Server.CacheDir != "/tmp/goboxd-cache" {
+		t.Errorf("CacheDir = %q, want /tmp/goboxd-cache", cfg.Server.CacheDir)
+	}
+	if cfg.Server.CacheMaxEntries != 512 {
+		t.Errorf("CacheMaxEntries = %d, want 512", cfg.Server.CacheMaxEntries)
+	}
+}
+
+// An explicit cache_enabled: false must survive defaulting (the *bool lets an
+// explicit false be distinguished from "unset").
+func TestLoad_CacheDisabledExplicit(t *testing.T) {
+	yaml := validYAML + "server:\n  cache_enabled: false\n"
+	f := writeTmp(t, yaml)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.CacheEnabled == nil || *cfg.Server.CacheEnabled {
+		t.Errorf("CacheEnabled = %v, want explicit false", cfg.Server.CacheEnabled)
+	}
 }
 
 func TestLoad_MissingID(t *testing.T) {
