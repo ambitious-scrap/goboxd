@@ -21,5 +21,9 @@
 # graphify knowledge-graph artifacts — generated, kept local
 /graphify-out/
 
+# Claude Code session/tooling artifacts — kept local
+/.claude/
+/.github/skills/
+
 # macOS junk
 .DS_Store
