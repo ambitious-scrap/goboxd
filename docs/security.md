@@ -55,6 +55,28 @@ nsjail enforces:
 - PID namespace (processes cannot see or signal host processes)
 - Mount namespace (read-only view of the host filesystem except the workdir)
 - Wall time and address space rlimits
-- Max process count
+- Max process count (`--rlimit_nproc`), reinforced by the cgroup `pids.max` cap below
 
 goboxd's application-level controls above are defense-in-depth; nsjail is the primary isolation boundary.
+
+## cgroup v2 resource controls
+
+**Location:** `internal/sandbox/cgroup.go`
+
+Each run gets a dedicated cgroup v2 directory with, where the controller is delegated on the host:
+- `memory.max` (+ `memory.swap.max=0`) — hard RSS cap from `memory_kb`; OOM kills are clean and swap can't be used to dodge the limit.
+- `pids.max` — absolute, hierarchical process-count cap from `max_processes`. This is the real fork-bomb guard: `pids.current` is counted across the whole subtree, whereas `--rlimit_nproc` is per-UID and therefore shared by every concurrent run under the sandbox UID.
+- `cpu.max` — optional CPU-bandwidth cap from the per-language `cpu_max_percent` (off by default). A sub-core quota inflates wall-clock time, so enable it only when grading on CPU-time.
+
+The `memory`, `cpu`, and `pids` controllers are delegated independently at startup; a host that cannot delegate `cpu`/`pids` still gets memory accounting, and the missing caps are skipped silently.
+
+## 8. seccomp-bpf syscall filtering
+
+**Location:** `internal/sandbox/sandbox.go:buildNsjailArgs`, `internal/config` (`server.seccomp_mode`, `language.seccomp_policy`)
+
+nsjail can load a kafel seccomp-bpf program per run via `--seccomp_string`, restricting the syscalls user code may make. This is **off by default** (no filter, current behaviour). When `server.seccomp_mode` is `audit` or `enforce` and a language defines a `seccomp_policy`:
+
+- **audit** — the policy is loaded together with `--seccomp_log`, so denied syscalls are logged. Pair with a permissive policy default (e.g. `DEFAULT LOG`/`ALLOW`) to observe a workload's real syscall set without killing it. Roll out here first.
+- **enforce** — the policy is applied as written (e.g. `DEFAULT KILL`), so disallowed syscalls terminate the process.
+
+Policies are per-language because runtimes differ: JIT/VM runtimes (Node/V8, the JVM) need `mprotect` with `PROT_EXEC` and related calls that a static C binary never makes. Author each policy against the audit-log baseline for that language before switching it to enforce.

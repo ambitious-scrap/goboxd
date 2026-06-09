@@ -275,6 +275,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		JailBase:         s.cfg.Server.JailBase,
 		NsjailPath:       s.cfg.Server.NsjailPath,
 		OutputCap:        s.cfg.Server.OutputCapBytes,
+		SeccompMode:      s.cfg.Server.SeccompMode,
 	})
 	if err != nil {
 		obs.TotalErrors.Add(1)

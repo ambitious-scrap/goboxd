@@ -3,6 +3,12 @@ server:
   jail_base: /tmp/goboxd
   nsjail_path: /usr/local/bin/nsjail
   output_cap_bytes: 65536
+  # seccomp-bpf syscall filtering: off | audit | enforce.
+  # off     = no filter (default). audit = load each language's seccomp_policy
+  # and add --seccomp_log (observe, don't kill — pair with a permissive policy
+  # default). enforce = apply the policy as written. A language without a
+  # seccomp_policy is never filtered. See docs/security.md.
+  seccomp_mode: "off"
 
 languages:
   - id: py3

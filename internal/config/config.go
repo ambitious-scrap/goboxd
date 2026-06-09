@@ -14,6 +14,14 @@ type ServerConfig struct {
 	NsjailPath     string `yaml:"nsjail_path"`
 	OutputCapBytes int    `yaml:"output_cap_bytes"`
 	MaxTests       int    `yaml:"max_tests"`
+	// SeccompMode controls nsjail seccomp-bpf filtering, applied to every run:
+	//   "off"     — no syscall filter (default; current behaviour, no regression)
+	//   "audit"   — load the per-language policy AND pass --seccomp_log, so
+	//               violations are logged (author the policy with a permissive
+	//               default action to observe without killing). Audit-first.
+	//   "enforce" — load the per-language policy as written (DEFAULT KILL etc.)
+	// A language with no seccomp_policy is never filtered, regardless of mode.
+	SeccompMode string `yaml:"seccomp_mode"`
 }
 
 type Language struct {
@@ -26,6 +34,11 @@ type Language struct {
 	Build                    *BuildStep `yaml:"build,omitempty"`
 	Run                      RunStep    `yaml:"run"`
 	Smoke                    SmokeProbe `yaml:"smoke"`
+	// SeccompPolicy is an optional kafel seccomp-bpf program applied to this
+	// language's build and run steps when SeccompMode != "off". Empty = no
+	// filter. JIT/interpreted runtimes (Node/V8, the JVM) need mprotect with
+	// PROT_EXEC, so per-language policies differ; author accordingly.
+	SeccompPolicy string `yaml:"seccomp_policy,omitempty"`
 }
 
 type BuildStep struct {

@@ -96,6 +96,79 @@ func TestBuildNsjailArgs_CgroupVsRlimit(t *testing.T) {
 	}
 }
 
+func TestBuildNsjailArgs_Seccomp(t *testing.T) {
+	base := RunConfig{
+		WorkDir: "/jail/abc",
+		Cmd:     "/bin/true",
+		Limits:  config.Limits{WallTimeS: 3},
+	}
+	policy := "POLICY p { ALLOW { read, write } } USE p DEFAULT KILL"
+
+	t.Run("off emits no seccomp flags", func(t *testing.T) {
+		cfg := base
+		cfg.SeccompMode = "off"
+		cfg.SeccompPolicy = policy
+		args := buildNsjailArgs(cfg, &cgroup{ok: false})
+		if has(args, "--seccomp_string") || has(args, "--seccomp_log") {
+			t.Errorf("off must not emit seccomp flags: %v", args)
+		}
+	})
+
+	t.Run("mode set but empty policy emits nothing", func(t *testing.T) {
+		cfg := base
+		cfg.SeccompMode = "enforce"
+		args := buildNsjailArgs(cfg, &cgroup{ok: false})
+		if has(args, "--seccomp_string") {
+			t.Errorf("empty policy must not emit --seccomp_string: %v", args)
+		}
+	})
+
+	t.Run("enforce emits policy without log", func(t *testing.T) {
+		cfg := base
+		cfg.SeccompMode = "enforce"
+		cfg.SeccompPolicy = policy
+		args := buildNsjailArgs(cfg, &cgroup{ok: false})
+		if !hasPair(args, "--seccomp_string", policy) {
+			t.Errorf("missing --seccomp_string policy: %v", args)
+		}
+		if has(args, "--seccomp_log") {
+			t.Error("enforce must not add --seccomp_log")
+		}
+	})
+
+	t.Run("audit emits policy and log", func(t *testing.T) {
+		cfg := base
+		cfg.SeccompMode = "audit"
+		cfg.SeccompPolicy = policy
+		args := buildNsjailArgs(cfg, &cgroup{ok: false})
+		if !hasPair(args, "--seccomp_string", policy) {
+			t.Errorf("missing --seccomp_string policy: %v", args)
+		}
+		if !has(args, "--seccomp_log") {
+			t.Error("audit must add --seccomp_log")
+		}
+	})
+
+	t.Run("seccomp flags precede the -- separator", func(t *testing.T) {
+		cfg := base
+		cfg.SeccompMode = "enforce"
+		cfg.SeccompPolicy = policy
+		args := buildNsjailArgs(cfg, &cgroup{ok: false})
+		sep, ss := -1, -1
+		for i, a := range args {
+			if a == "--" && sep == -1 {
+				sep = i
+			}
+			if a == "--seccomp_string" {
+				ss = i
+			}
+		}
+		if ss == -1 || sep == -1 || ss > sep {
+			t.Errorf("--seccomp_string (%d) must precede -- (%d)", ss, sep)
+		}
+	})
+}
+
 func TestLimitedWriter(t *testing.T) {
 	t.Run("under cap writes all, no truncation", func(t *testing.T) {
 		var buf bytes.Buffer

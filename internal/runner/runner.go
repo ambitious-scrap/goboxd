@@ -57,6 +57,7 @@ type RunRequest struct {
 	JailBase         string
 	NsjailPath       string
 	OutputCap        int
+	SeccompMode      string // server-wide: off|audit|enforce
 }
 
 // RunResult is the fully computed outcome of a submission.
@@ -131,10 +132,12 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 		start := time.Now()
 		br, err := r.sb.Run(ctx, sandbox.RunConfig{
 			WorkDir:   jailPath,
-			Cmd:       registry.ResolveOne(req.Language.Build.Cmd, vars),
-			Args:      args,
-			Limits:    buildLimits,
-			OutputCap: r.outputCap,
+			Cmd:           registry.ResolveOne(req.Language.Build.Cmd, vars),
+			Args:          args,
+			Limits:        buildLimits,
+			OutputCap:     r.outputCap,
+			SeccompMode:   req.SeccompMode,
+			SeccompPolicy: req.Language.SeccompPolicy,
 		})
 		res.BuildDurationMs = time.Since(start).Milliseconds()
 
@@ -170,9 +173,11 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 			WorkDir:   jailPath,
 			Cmd:       runCmd,
 			Args:      runArgs,
-			Stdin:     tc.Stdin,
-			Limits:    runLimits,
-			OutputCap: r.outputCap,
+			Stdin:         tc.Stdin,
+			Limits:        runLimits,
+			OutputCap:     r.outputCap,
+			SeccompMode:   req.SeccompMode,
+			SeccompPolicy: req.Language.SeccompPolicy,
 		})
 		durationMs := time.Since(start).Milliseconds()
 
