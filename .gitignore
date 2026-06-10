@@ -30,3 +30,11 @@
 
 # Serena tooling — kept local
 /.serena/
+
+# Reference implementation + its fixtures — provided locally for the differential
+# conformance test (tests/conformance), deliberately not bundled in this repo.
+/pyjail/
+/pyjail-old/
+
+# Generated go fuzz corpus (seed inputs live in *_test.go via f.Add).
+**/testdata/fuzz/

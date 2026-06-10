@@ -5,6 +5,10 @@ services:
       - "8080:8080"   # public API
       - "9090:9090"   # Prometheus /metrics admin port (also scraped in-network)
     privileged: true
+    # nsjail needs the host/root cgroup v2 hierarchy to create per-run child
+    # cgroups (memory.max accounting, OOM detection). Without this the sandbox
+    # falls back to --rlimit_as and memory_peak_kb reads 0.
+    cgroup: host
     volumes:
       - ./configs:/etc/goboxd:ro
     environment:
