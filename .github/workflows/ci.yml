@@ -32,3 +32,47 @@ jobs:
 
       - name: test
         run: go test ./...
+
+  smoke:
+    # Builds the image and runs every language end-to-end through real nsjail
+    # with seccomp in enforce mode. This is the regression gate for the seccomp
+    # deny-list: if a policy kills a legitimate runtime, a language flips to
+    # runtime_error and the smoke fails. Self-contained (no external fixtures).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: build image
+        run: docker build -t goboxd:ci .
+
+      - name: run container (privileged, host cgroup ns for cgroup v2)
+        run: |
+          docker run -d --name goboxd --privileged --cgroupns=host \
+            -p 8080:8080 -v "$PWD/configs:/etc/goboxd:ro" goboxd:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/healthz >/dev/null && break || sleep 1
+          done
+
+      - name: readyz (all toolchains + nsjail healthy)
+        run: |
+          code=$(curl -s -o /tmp/readyz.json -w '%{http_code}' http://localhost:8080/readyz)
+          cat /tmp/readyz.json
+          test "$code" = "200"
+
+      - name: language smoke under seccomp enforce
+        run: GOBOXD_URL=http://localhost:8080 bash scripts/smoke_languages.sh
+
+      - name: seccomp actually blocks ptrace
+        run: |
+          status=$(curl -s -X POST http://localhost:8080/run \
+            -H 'Content-Type: application/json' \
+            -d '{"language":"py3","source":"import ctypes\nctypes.CDLL(\"libc.so.6\").ptrace(0,0,0,0)\nprint(\"survived\")","tests":[{"stdin":"","expected_stdout":"survived\n"}]}' \
+            | jq -r '.status')
+          echo "ptrace submission status: $status"
+          test "$status" = "runtime_error"
+
+      - name: logs on failure
+        if: failure()
+        run: docker logs goboxd || true
