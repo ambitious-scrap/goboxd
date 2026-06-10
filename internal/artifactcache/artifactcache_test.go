@@ -1,6 +1,7 @@
 package artifactcache
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -145,7 +146,11 @@ func TestLock_SingleFlight(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
-			unlock := c.Lock("same-key")
+			unlock, err := c.Lock(context.Background(), "same-key")
+			if err != nil {
+				t.Errorf("Lock: %v", err)
+				return
+			}
 			defer unlock()
 			mu.Lock()
 			active++
@@ -172,6 +177,90 @@ func TestLock_SingleFlight(t *testing.T) {
 	c.mu.Unlock()
 	if n != 0 {
 		t.Errorf("lock map leaked %d entries", n)
+	}
+}
+
+// TestLock_ContextCancelUnblocksWaiter verifies a waiter blocked on an in-flight
+// build of the same key abandons the wait when its context is cancelled, rather
+// than blocking until the holder releases.
+func TestLock_ContextCancelUnblocksWaiter(t *testing.T) {
+	c, err := New(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Hold the key.
+	unlock, err := c.Lock(context.Background(), "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		u, err := c.Lock(ctx, "k") // should block: key is held
+		if err == nil {
+			u()
+		}
+		done <- err
+	}()
+
+	// The waiter must still be blocked before cancellation.
+	select {
+	case err := <-done:
+		t.Fatalf("Lock returned before cancel (err=%v); should have blocked", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Fatalf("waiter err = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled waiter did not unblock")
+	}
+}
+
+// TestPut_ConcurrentEvictNoRace drives many concurrent Puts on distinct keys
+// against a small cache so commit and eviction interleave; run with -race to
+// catch unsynchronized rename/RemoveAll. The cache must converge to <= maxEntries.
+func TestPut_ConcurrentEvictNoRace(t *testing.T) {
+	dir := t.TempDir()
+	const maxEntries = 4
+	c, err := New(dir, maxEntries)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	const writers = 24
+	wg.Add(writers)
+	for i := 0; i < writers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			src := filepath.Join(t.TempDir(), "src")
+			mustWrite(t, filepath.Join(src, "bin"), "artifact", 0755)
+			key := "key-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+			_ = c.Put(key, src, "", Meta{})
+		}(i)
+	}
+	wg.Wait()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			n++
+		}
+	}
+	if n > maxEntries {
+		t.Errorf("cache holds %d entries, want <= %d", n, maxEntries)
 	}
 }
 

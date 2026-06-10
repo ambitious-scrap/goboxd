@@ -10,6 +10,7 @@
 package artifactcache
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -62,12 +63,19 @@ type Cache struct {
 	dir        string
 	maxEntries int
 
-	mu    sync.Mutex
+	mu    sync.Mutex // guards locks
 	locks map[string]*keyLock
+
+	// dirMu serializes cache-wide filesystem mutation (entry commit + eviction)
+	// so concurrent Puts on *different* keys cannot race each other's
+	// rename/RemoveAll. Held only briefly and off the run-hot path.
+	dirMu sync.Mutex
 }
 
+// keyLock is a per-key single-flight gate. ch is a capacity-1 semaphore (rather
+// than a sync.Mutex) so acquisition can be abandoned on context cancellation.
 type keyLock struct {
-	mu  sync.Mutex
+	ch  chan struct{}
 	ref int
 }
 
@@ -81,26 +89,37 @@ func New(dir string, maxEntries int) (*Cache, error) {
 
 // Lock acquires the single-flight lock for key and returns its release function.
 // The runner holds it across the Get -> build -> Put sequence so that identical
-// concurrent submissions compile exactly once.
-func (c *Cache) Lock(key string) (unlock func()) {
+// concurrent submissions compile exactly once. Acquisition honors ctx: if the
+// caller is cancelled while waiting for an in-flight build of the same key, Lock
+// returns ctx.Err() and a nil unlock instead of blocking until that build ends.
+func (c *Cache) Lock(ctx context.Context, key string) (unlock func(), err error) {
 	c.mu.Lock()
 	kl := c.locks[key]
 	if kl == nil {
-		kl = &keyLock{}
+		kl = &keyLock{ch: make(chan struct{}, 1)}
 		c.locks[key] = kl
 	}
 	kl.ref++
 	c.mu.Unlock()
 
-	kl.mu.Lock()
-	return func() {
-		kl.mu.Unlock()
+	release := func() {
 		c.mu.Lock()
 		kl.ref--
 		if kl.ref == 0 {
 			delete(c.locks, key)
 		}
 		c.mu.Unlock()
+	}
+
+	select {
+	case kl.ch <- struct{}{}: // acquired the single-flight token
+		return func() {
+			<-kl.ch
+			release()
+		}, nil
+	case <-ctx.Done():
+		release()
+		return nil, ctx.Err()
 	}
 }
 
@@ -162,6 +181,11 @@ func (c *Cache) Put(key, srcDir, excludeFile string, meta Meta) error {
 		return fmt.Errorf("write meta: %w", err)
 	}
 
+	// Commit + eviction are serialized cache-wide so two Puts on different keys
+	// cannot race each other's rename/RemoveAll (or evict a just-committed entry).
+	c.dirMu.Lock()
+	defer c.dirMu.Unlock()
+
 	entry := filepath.Join(c.dir, key)
 	os.RemoveAll(entry) // replace any partial/previous entry
 	if err := os.Rename(staging, entry); err != nil {
@@ -169,13 +193,13 @@ func (c *Cache) Put(key, srcDir, excludeFile string, meta Meta) error {
 	}
 	committed = true
 
-	c.evict()
+	c.evictLocked()
 	return nil
 }
 
-// evict trims the cache to maxEntries, removing the oldest entries by mtime.
-// Best-effort: IO errors are ignored.
-func (c *Cache) evict() {
+// evictLocked trims the cache to maxEntries, removing the oldest entries by
+// mtime. Best-effort: IO errors are ignored. Caller must hold c.dirMu.
+func (c *Cache) evictLocked() {
 	if c.maxEntries <= 0 {
 		return
 	}

@@ -248,7 +248,10 @@ func (r *Runner) buildPhase(ctx context.Context, req RunRequest, jailPath string
 	var key string
 	if cacheable {
 		key = artifactcache.Key(req.Language.ID, req.ToolchainVersion, req.Source, req.BuildFlags, artifactFilename)
-		unlock := r.cache.Lock(key)
+		unlock, err := r.cache.Lock(ctx, key)
+		if err != nil {
+			return false, fmt.Errorf("cache lock: %w", err)
+		}
 		defer unlock()
 		if meta, ok := r.cache.Get(key, jailPath); ok {
 			res.CacheStatus = "hit"
