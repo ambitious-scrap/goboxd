@@ -106,6 +106,17 @@ build/run latency p95, queue depth & in-flight, 503 reject rate, cache hit ratio
 p95 by lane (light vs heavy — see the fast-lane reservation in [docs/architecture.md](docs/architecture.md)).
 Scrape config and provisioning live under `deploy/`.
 
+## Demo UI (not bundled)
+
+An optional Monaco-editor page lives in [`demo/`](demo/) for quick manual exploration.
+It is **deliberately not bundled into the service** and is not part of the deployable
+artifact: `goboxd` is a headless judge whose only trust boundary is the API + sandbox.
+A web UI adds zero security (an attacker hits the API with `curl`, never the page) and
+would only enlarge the attack surface, so the page is a standalone static file that
+talks to the public API like any other client. It is served separately and requires the
+demo-only, env-gated CORS allowance (`GOBOXD_DEMO_CORS_ORIGIN`, off by default, never
+`*`, never production). See [`demo/README.md`](demo/README.md).
+
 ## Design decisions
 
 Short rationale for the choices a reviewer is most likely to question. Fuller analysis lives

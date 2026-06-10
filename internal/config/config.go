@@ -53,6 +53,14 @@ type ServerConfig struct {
 	//   "enforce" — load the per-language policy as written (DEFAULT KILL etc.)
 	// A language with no seccomp_policy is never filtered, regardless of mode.
 	SeccompMode string `yaml:"seccomp_mode"`
+	// DemoCORSOrigin, when non-empty, makes the public router emit
+	// Access-Control-Allow-Origin for this exact origin so the standalone Monaco
+	// demo page (served from a different port) can call /run from a browser. Empty
+	// (default) emits no CORS header at all — identical to production. The env var
+	// GOBOXD_DEMO_CORS_ORIGIN overrides this field. CORS is a browser convenience,
+	// NOT a security control (curl ignores it); never set this in production and
+	// never use "*".
+	DemoCORSOrigin string `yaml:"demo_cors_origin"`
 }
 
 type Language struct {

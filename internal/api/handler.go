@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -84,11 +85,46 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 
+	// Demo-only CORS. Off unless an exact origin is configured (env wins over
+	// config). Never "*", never enabled in production. CORS is a browser
+	// convenience, not a security boundary — the sandbox is.
+	if origin := s.demoCORSOrigin(); origin != "" {
+		r.Use(corsMiddleware(origin))
+	}
+
 	r.Get("/healthz", s.healthz)
 	r.Get("/readyz", s.readyz)
 	r.Get("/info", s.info)
 	r.Post("/run", s.run)
 	return r
+}
+
+// demoCORSOrigin returns the exact origin allowed for the standalone demo page,
+// preferring the GOBOXD_DEMO_CORS_ORIGIN env var over the config field. Empty
+// means CORS is disabled (production default).
+func (s *Server) demoCORSOrigin() string {
+	if env := os.Getenv("GOBOXD_DEMO_CORS_ORIGIN"); env != "" {
+		return env
+	}
+	return s.cfg.Server.DemoCORSOrigin
+}
+
+// corsMiddleware emits CORS headers for the single configured origin and answers
+// preflight OPTIONS with 204. Demo-only; not a security control.
+func corsMiddleware(origin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // MetricsHandler returns the Prometheus /metrics handler. It is served on a

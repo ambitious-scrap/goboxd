@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>goboxd demo</title>
+<!--
+  Standalone demo for goboxd. NOT bundled into the service binary and NOT a
+  security boundary — the sandbox (nsjail/seccomp/cgroups) is. This page is just
+  a browser client of the public API, equivalent to curl. All server-returned
+  text is inserted via textContent (never innerHTML) to avoid XSS from echoed
+  program output.
+
+  Serve locally:   cd demo && python3 -m http.server 3000
+  Run goboxd with: GOBOXD_DEMO_CORS_ORIGIN=http://localhost:3000
+-->
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+         background: #1e1e1e; color: #ddd; }
+  header { padding: 10px 16px; background: #252526; border-bottom: 1px solid #333;
+           display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  select, input, button { background: #333; color: #ddd; border: 1px solid #555;
+           border-radius: 4px; padding: 5px 8px; font: inherit; }
+  button { background: #0e639c; border-color: #0e639c; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px;
+         height: calc(100vh - 120px); }
+  #editor { border: 1px solid #333; }
+  .col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .io { display: flex; flex-direction: column; gap: 4px; }
+  .io textarea { background: #252526; color: #ddd; border: 1px solid #444;
+           border-radius: 4px; padding: 6px; font: 12px ui-monospace, monospace;
+           resize: vertical; min-height: 48px; }
+  #out { flex: 1; overflow: auto; background: #252526; border: 1px solid #444;
+         border-radius: 4px; padding: 10px; white-space: pre-wrap;
+         font: 12px ui-monospace, monospace; }
+  .verdict { font-weight: 700; }
+  .ok { color: #4ec9b0; } .bad { color: #f48771; } .muted { color: #888; }
+  label { font-size: 12px; color: #aaa; }
+</style>
+</head>
+<body>
+<header>
+  <h1>goboxd demo</h1>
+  <label>language
+    <select id="lang"></select>
+  </label>
+  <label>API
+    <input id="api" size="24" value="http://localhost:8080" />
+  </label>
+  <button id="run">Run ▶</button>
+  <span id="status" class="muted"></span>
+</header>
+
+<main>
+  <div id="editor"></div>
+  <div class="col">
+    <div class="io">
+      <label for="stdin">stdin</label>
+      <textarea id="stdin" rows="2"></textarea>
+    </div>
+    <div class="io">
+      <label for="expected">expected_stdout</label>
+      <textarea id="expected" rows="2"></textarea>
+    </div>
+    <div id="out" class="muted">No run yet.</div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+<script>
+const FALLBACK_LANGS = ["py3","js","bash","c","cpp","java","verilog"];
+// Map goboxd language ids -> Monaco syntax modes (best effort).
+const MONACO_MODE = { py3:"python", js:"javascript", bash:"shell", c:"c",
+  cpp:"cpp", java:"java", verilog:"plaintext" };
+const HELLO = {
+  py3:'print("hello")', js:'console.log("hello")', bash:'echo hello',
+  c:'#include <stdio.h>\nint main(){puts("hello");}',
+  cpp:'#include <iostream>\nint main(){std::cout<<"hello\\n";}',
+  java:'public class Main{public static void main(String[] a){System.out.println("hello");}}',
+  verilog:'module top; initial $display("hello"); endmodule'
+};
+// Languages whose ids the server marks as needing request filenames (Java).
+const FILENAMES = { java: { source_filename:"Main.java", artifact_filename:"Main" } };
+
+const $ = id => document.getElementById(id);
+let editor;
+
+require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" }});
+require(["vs/editor/editor.main"], () => {
+  editor = monaco.editor.create($("editor"), {
+    value: HELLO.py3, language: "python", theme: "vs-dark",
+    minimap: { enabled: false }, automaticLayout: true, fontSize: 13,
+  });
+  populateLangs();
+});
+
+async function populateLangs() {
+  let langs = FALLBACK_LANGS;
+  try {
+    const r = await fetch($("api").value.replace(/\/$/,"") + "/info");
+    if (r.ok) { const j = await r.json();
+      if (Array.isArray(j.languages) && j.languages.length)
+        langs = j.languages.map(l => l.id); }
+  } catch (_) { /* offline: use fallback */ }
+  const sel = $("lang");
+  sel.innerHTML = "";
+  for (const id of langs) { const o = document.createElement("option");
+    o.value = id; o.textContent = id; sel.appendChild(o); }
+  sel.onchange = onLangChange;
+}
+
+function onLangChange() {
+  const id = $("lang").value;
+  if (editor) {
+    monaco.editor.setModelLanguage(editor.getModel(), MONACO_MODE[id] || "plaintext");
+    if (HELLO[id]) editor.setValue(HELLO[id]);
+  }
+}
+
+$("run").onclick = async () => {
+  const api = $("api").value.replace(/\/$/,"");
+  const id = $("lang").value;
+  const body = {
+    language: id,
+    source: editor ? editor.getValue() : "",
+    tests: [{ stdin: $("stdin").value, expected_stdout: $("expected").value }],
+  };
+  if (FILENAMES[id]) Object.assign(body, FILENAMES[id]);
+
+  setStatus("running…", "muted");
+  $("run").disabled = true;
+  const out = $("out"); out.textContent = "";
+  try {
+    const r = await fetch(api + "/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    render(out, r.status, j);
+    setStatus("done (HTTP " + r.status + ")", r.ok ? "ok" : "bad");
+  } catch (e) {
+    out.textContent = "Request failed: " + e.message +
+      "\n\nIf this is a CORS error, start goboxd with GOBOXD_DEMO_CORS_ORIGIN=" +
+      location.origin;
+    setStatus("error", "bad");
+  } finally { $("run").disabled = false; }
+};
+
+function setStatus(t, cls) { const s = $("status"); s.textContent = t; s.className = cls; }
+
+// All text below uses textContent — never innerHTML — so program output cannot
+// inject markup.
+function render(out, httpCode, j) {
+  if (j && j.error) {
+    line(out, "error: " + j.error.code, "bad");
+    line(out, j.error.message, "muted");
+    return;
+  }
+  line(out, "verdict: " + (j.status || "?"),
+    j.status === "accepted" || j.status === "passed" ? "ok verdict" : "bad verdict");
+  if (j.build) {
+    line(out, "— build: " + j.build.status + " (" + j.build.duration_ms + "ms)",
+      j.build.status === "ok" || j.build.status === "success" ? "ok" : "bad");
+    if (j.build.stderr) block(out, j.build.stderr);
+  }
+  (j.tests || []).forEach((t, i) => {
+    line(out, "test " + (i+1) + ": " + t.status +
+      "  (" + t.duration_ms + "ms, " + t.memory_peak_kb + "KB)",
+      t.status === "passed" || t.status === "accepted" ? "ok" : "bad");
+    if (t.stdout) { line(out, "  stdout:", "muted"); block(out, t.stdout); }
+    if (t.stderr) { line(out, "  stderr:", "muted"); block(out, t.stderr); }
+  });
+}
+function line(out, text, cls) {
+  const d = document.createElement("div"); d.textContent = text;
+  if (cls) d.className = cls; out.appendChild(d);
+}
+function block(out, text) {
+  const pre = document.createElement("div");
+  pre.style.cssText = "margin:0 0 6px 16px;color:#bbb";
+  pre.textContent = text; out.appendChild(pre);
+}
+</script>
+</body>
+</html>
