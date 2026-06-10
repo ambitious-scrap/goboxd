@@ -36,10 +36,15 @@ Response:
 
 ## Supported languages
 
-| ID    | Language   |
-|-------|------------|
-| py3   | Python 3   |
-| cpp   | C++        |
+| ID         | Language          |
+|------------|-------------------|
+| py3        | Python 3          |
+| c          | C                 |
+| cpp        | C++               |
+| java       | Java              |
+| bash       | Bash              |
+| javascript | JavaScript (Node) |
+| verilog    | Verilog           |
 
 Run `/readyz` for live status of each language toolchain.
 
@@ -54,7 +59,8 @@ Full request/response schema: [docs/api.md](docs/api.md)
 
 ## Adding a language
 
-1. Add a YAML block to `configs/languages.yaml`
+1. Add a YAML block to `configs/languages.yaml` (reference the shared seccomp
+   policy with `seccomp_policy: *deny_seccomp`)
 2. Add an install script at `scripts/lang_install/<id>.sh`
 3. `docker build`
 4. Check `/readyz` — the language appears automatically
@@ -80,7 +86,11 @@ Go 1.22+. nsjail is built from source as a git submodule (`external/nsjail`, tag
 
 ## Security
 
-[docs/security.md](docs/security.md)
+Code runs under nsjail (user/mount/pid/net namespaces, dropped capabilities,
+`no_new_privs`), cgroup v2 resource caps, and a **seccomp-bpf deny-list enforced by
+default** that blocks the kernel sandbox-escape surface (`ptrace`, `bpf`, `mount`,
+module loading, `kexec`, `process_vm_*`, …) while leaving JIT/threaded runtimes intact.
+Details and the full policy: [docs/security.md](docs/security.md)
 
 ## Observability
 
@@ -96,6 +106,22 @@ build/run latency p95, queue depth & in-flight, 503 reject rate, cache hit ratio
 p95 by lane (light vs heavy — see the fast-lane reservation in [docs/architecture.md](docs/architecture.md)).
 Scrape config and provisioning live under `deploy/`.
 
-## Framework
+## Design decisions
 
-`net/http` + `chi` for routing. Three read-only endpoints and one POST don't justify a heavier framework; chi adds request-id middleware and a panic recovery handler without pulling in a runtime.
+Short rationale for the choices a reviewer is most likely to question. Fuller analysis lives
+in [docs/improvements.md](docs/improvements.md) (Part C) and [docs/architecture.md](docs/architecture.md).
+
+- **`chi` over a framework.** Three read-only endpoints and one POST don't justify a heavier
+  framework; `chi` adds request-id middleware and a panic-recovery handler on top of
+  `net/http` without pulling in a runtime.
+- **nsjail built from source, pinned.** nsjail is a git submodule checked out at tag 3.4 and
+  compiled in the image, rather than trusting a host/distro package. The sandbox boundary is
+  reproducible and version-known instead of "whatever nsjail the host happens to ship."
+- **Artifact cache, not result cache.** We cache the compiled binary keyed by
+  `(lang, toolchain version, sha256(source), build flags)` and **always re-run in a fresh
+  jail**. Identical source ⇒ identical binary (safe to reuse); caching *run verdicts* is not
+  safe — a nondeterministic program would return a stale result. Verdicts stay live.
+- **Backpressure, not limit clamping.** Under overload we shed at the door with
+  `503 + Retry-After`; we never silently shrink a run's `wall_time_s`/`memory_kb`. A judge's
+  verdict must be a pure function of `(source, tests, limits)` — load-dependent verdicts (pass
+  off-peak, `time_exceeded` at peak) are unacceptable, and the spec forbids clamping.

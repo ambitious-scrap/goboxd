@@ -111,9 +111,16 @@ commit `5a6e32d`.
     the compiled binary only, and always re-runs in a fresh jail (verdict-neutral).
     Caching test *verdicts* was rejected: nondeterministic programs would return stale
     results. ~36× C++ throughput on identical resubmissions (see benchmarks).
-*   **Seccomp-BPF (Part 1 §1)** and **cgroup `cpu.max` / `pids.max`** also shipped earlier
-    (commits `dbc446a`, `9b6f431`); see `docs/security.md`.
+*   **Seccomp-BPF (Part 1 §1)**: DONE and **enforced by default** (2026-06-10). Mechanism
+    landed in `dbc446a`; now a shared kafel deny-list (`DEFAULT ALLOW`, killing
+    ptrace/bpf/mount/module-load/kexec/process_vm_*/namespace ops) is applied to every
+    language with `seccomp_mode: enforce`. Verified end-to-end (all langs run; `ptrace`
+    killed). cgroup `cpu.max` / `pids.max` shipped in `9b6f431`. See `docs/security.md` §8.
+*   **Property/fuzz testing (Part 1 §2)**: DONE. Native `go test -fuzz` on the placeholder
+    resolver/flag expander, status classifier, and nsjail argv builder (flag-injection guard).
+    Plus a **differential conformance suite** (`tests/conformance`) that runs the reference
+    implementation's own fixtures through the live service under enforce — which also pinned a
+    bug in the reference (`java/error_runtime`) where goboxd is the more-correct one.
 
-Still open from this doc: fuzz/property tests (Part 1 §2), deeper sandbox layering
-(Part 1 §5), microVM tier, async API, distributed workers, warm pools, multi-file /
-grader / SDK (Part 3 §1, §2, §4).
+Still open from this doc: deeper sandbox layering (Part 1 §5), microVM tier, async API,
+distributed workers, warm pools, multi-file / grader / SDK (Part 3 §1, §2, §4).

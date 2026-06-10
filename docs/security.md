@@ -74,12 +74,25 @@ The `memory`, `cpu`, and `pids` controllers are delegated independently at start
 
 **Location:** `internal/sandbox/sandbox.go:buildNsjailArgs`, `internal/config` (`server.seccomp_mode`, `language.seccomp_policy`)
 
-nsjail can load a kafel seccomp-bpf program per run via `--seccomp_string`, restricting the syscalls user code may make. This is **off by default** (no filter, current behaviour). When `server.seccomp_mode` is `audit` or `enforce` and a language defines a `seccomp_policy`:
+nsjail loads a kafel seccomp-bpf program per run via `--seccomp_string`, restricting the syscalls user code may make. This is layered **on top of** namespace + capability isolation: namespaces stop you from *seeing* host resources; seccomp stops you from *reaching the kernel surface* used to break out of them. `server.seccomp_mode` selects the behaviour:
 
-- **audit** — the policy is loaded together with `--seccomp_log`, so denied syscalls are logged. Pair with a permissive policy default (e.g. `DEFAULT LOG`/`ALLOW`) to observe a workload's real syscall set without killing it. Roll out here first.
-- **enforce** — the policy is applied as written (e.g. `DEFAULT KILL`), so disallowed syscalls terminate the process.
+- **off** — no filter (byte-for-byte the un-filtered path).
+- **audit** — the policy is loaded together with `--seccomp_log`, so denied syscalls are logged rather than only killed. Use to observe a workload's real syscall set.
+- **enforce** *(default)* — the policy is applied as written; a denied syscall delivers `SIGSYS` and terminates the process (surfaces as `runtime_error`).
 
-Policies are per-language because runtimes differ: JIT/VM runtimes (Node/V8, the JVM) need `mprotect` with `PROT_EXEC` and related calls that a static C binary never makes. Author each policy against the audit-log baseline for that language before switching it to enforce.
+**Policy: deny-list with `DEFAULT ALLOW`.** Rather than an allow-list (`DEFAULT KILL` + per-language enumeration of every syscall a JVM/V8/CPython needs — brittle across runtimes and arch, and the documented way to break JIT), we `KILL` the kernel sandbox-escape surface and allow the rest:
+
+```
+ptrace, mount, pivot_root, chroot, setns, unshare,
+keyctl, add_key, request_key, bpf, perf_event_open,
+init_module, finit_module, delete_module,
+kexec_load, reboot, swapon, swapoff,
+process_vm_readv, process_vm_writev
+```
+
+This is the same shape as Docker's default profile: thread/process creation (`clone`, and `clone3` by glibc fallback), `mmap`/`mprotect(PROT_EXEC)`, `futex`, file and signal I/O all remain available, so all seven languages — including the JVM, Node/V8 and CPython, which spawn threads at startup — run unmodified, while `ptrace`, module loading, `bpf`, `kexec`, `process_vm_*` and mount/namespace manipulation are hard-blocked. The policy is defined once (a YAML anchor, `&deny_seccomp`) and shared by every language. Verified end-to-end: the differential conformance suite (`tests/conformance`) passes under enforce across all languages, and a submission that calls `ptrace` is killed (`runtime_error`) rather than succeeding.
+
+> Names not present in this build's kafel (`umount2`, `kexec_file_load`) are intentionally omitted — kafel fails the whole policy compilation on an unknown identifier, which silently disables the filter. A kafel rule list must **not** have a trailing comma after the final `}` for the same reason.
 
 ## 9. Prometheus metrics on a separate admin port
 

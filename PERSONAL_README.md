@@ -1,4 +1,4 @@
-# goboxd — Personal README (version `5a6e32d` + fast-lane & Grafana, 2026-06-09)
+# goboxd — Personal README (version `5a6e32d` + fast-lane, Grafana, seccomp-enforce & differential conformance, 2026-06-10)
 
 A deep, feature-by-feature walkthrough of **goboxd**: a sandboxed code-execution and
 grading service. It accepts source code + test cases over HTTP, compiles/runs the code
@@ -227,18 +227,33 @@ A dedicated cgroup is created per run, written, and torn down:
 `cgroups_enabled` (in `/info`) reports whether cgroup v2 accounting is active; if not, the
 sandbox falls back to `rlimit_as` (limits still enforced, but OOM/peak not reported).
 
-### seccomp-bpf syscall filtering *(commit `dbc446a`)*
-Optional, server-wide `seccomp_mode`:
+### seccomp-bpf syscall filtering *(mechanism `dbc446a`; enforced by default 2026-06-10)*
+Server-wide `seccomp_mode`, **`enforce` by default**:
 
-- **`off`** (default) — no syscall filter; no behavior change vs the pre-seccomp build.
-- **`audit`** — load the per-language kafel policy **and** `--seccomp_log` so violations are
-  logged but not killed (author policies with a permissive default action to observe first).
-- **`enforce`** — apply the policy as written (e.g. `DEFAULT KILL`).
+- **`off`** — no syscall filter (byte-for-byte the pre-seccomp path).
+- **`audit`** — load the kafel policy **and** `--seccomp_log`, so violations are logged.
+- **`enforce`** *(default)* — apply the policy; a denied syscall delivers `SIGSYS` →
+  `runtime_error`.
 
-Policies are **per-language** (`seccomp_policy` in the YAML), because JIT/interpreted
-runtimes (JVM, Node/V8) legitimately need `mprotect(PROT_EXEC)`, `futex`, `clone`, etc. that
-a static C++ binary does not. A language with no policy is never filtered, regardless of
-mode.
+**Policy: a shared deny-list with `DEFAULT ALLOW`** (`&deny_seccomp` YAML anchor, aliased by
+every language). Rather than enumerate every syscall a JVM/V8/CPython needs (an allow-list is
+brittle across runtimes + arch and is the documented way to break JIT), it `KILL`s the
+kernel sandbox-escape surface and allows the rest:
+
+```
+ptrace, mount, pivot_root, chroot, setns, unshare, keyctl, add_key, request_key,
+bpf, perf_event_open, init_module, finit_module, delete_module, kexec_load, reboot,
+swapon, swapoff, process_vm_readv, process_vm_writev
+```
+
+Same shape as Docker's default profile: threads (`clone`/`clone3`), `mmap`/`mprotect`,
+`futex`, file + signal I/O stay available, so all seven languages run unmodified while the
+escape surface is hard-blocked. **Verified:** the differential conformance suite passes under
+enforce across all languages, and a submission calling `ptrace` is killed (`runtime_error`)
+rather than succeeding. Two kafel footguns learned the hard way: an unknown identifier
+(`umount2`, `kexec_file_load` aren't in this build) or a trailing comma after the rule block
+fails the **whole** policy compilation, which silently disables the filter — covered now by a
+CI smoke + ptrace-block gate.
 
 ---
 
@@ -315,18 +330,21 @@ in a fresh jail per test.
 - **Hit:** copy cached artifacts into the fresh jail, set `build.status = ok`, replay the
   stored build output + duration, **skip** the compile. The run phase still runs live per
   test case.
-- **Single-flight:** an in-process keyed mutex spans `get → build → put`, so N identical
-  concurrent submissions compile exactly once.
+- **Single-flight:** an in-process keyed semaphore spans `get → build → put`, so N identical
+  concurrent submissions compile exactly once. The wait is **context-cancellable** — a client
+  that disconnects mid-wait unblocks immediately instead of parking until the in-flight
+  compile finishes.
 - **Eviction:** count cap `CacheMaxEntries` (default 512), oldest-by-mtime evicted on
-  insert; a startup TTL sweep clears stale entries. **All IO errors degrade gracefully to a
-  miss** (build normally).
+  insert; a startup TTL sweep clears stale entries. Commit + eviction are serialized under a
+  cache-wide lock so concurrent `Put`s on different keys can't race each other's
+  rename/`RemoveAll`. **All IO errors degrade gracefully to a miss** (build normally).
 - **Scope:** only languages with a build step ever consult the cache; toggle with
   `cache_enabled`.
 
 **Benchmarked:** identical C++ resubmissions — ~36× throughput at c=1 (build 143 ms →
 replayed; p50 104 ms → 2.8 ms), 657 hits / 1 miss across a sweep, identical verdicts. See
-`docs/benchmarks.md`. Known best-effort limitations (non-cancellable single-flight wait;
-cross-key eviction race) are logged in `docs/improvements.md` → *Follow-up notes*.
+`docs/benchmarks.md`. The two previously-logged best-effort limitations (non-cancellable
+single-flight wait; cross-key eviction race) are now **fixed** and covered by a `-race` test.
 
 ---
 
@@ -416,11 +434,34 @@ make load          # hey load test against localhost:8080
 ## 12. Security model (summary)
 
 Defense in depth: nsjail namespaces + chroot + all-deny network → cgroup v2 memory/CPU/PID
-caps → optional seccomp-bpf syscall filter → rlimits → output caps → bounded admission. Each
+caps → **enforced seccomp-bpf deny-list** (blocks ptrace/bpf/mount/module-load/kexec/
+process_vm_*…) → rlimits → output caps → bounded admission. Each
 run gets a fresh 0700 jail dir (unique by atomic counter + PID + random hex); orphans from a
 crashed run are swept at startup. Untrusted code cannot reach the network, exhaust host
 memory/CPU/PIDs, escape the chroot, or influence another request. Full detail in
 `docs/security.md`.
+
+---
+
+## 12a. Testing & conformance
+
+- **Unit + property tests** across 15 packages (`go test ./...`). Native `go test -fuzz`
+  targets on the user-input surface: the placeholder resolver and flag expander
+  (`internal/registry`), the verdict classifier (`internal/status`), and the nsjail argv
+  builder (`internal/sandbox`) — the last asserts user tokens can never escape the `--`
+  separator into the nsjail flag region (flag-injection guard).
+- **Differential conformance** (`tests/conformance`, build tag `integration`): drives the live
+  service with the reference implementation's own recorded fixtures
+  (`pyjail/src/tests/testcases/<lang>/<case>/{request,reply}.txt`, proto-text) across all eight
+  reference languages and asserts our verdict matches the reference. Runs under **seccomp
+  enforce**. It even pins one place where **we are more correct than the reference**:
+  `java/error_runtime` (divide-by-zero) — the reference records `OK`; goboxd correctly returns
+  `runtime_error`, asserted as a known-reference-bug correction. `pyjail/` is kept local
+  (gitignored), so the suite skips when the fixtures aren't present.
+- **CI** (`.github/workflows/ci.yml`): `gofmt` + `vet` + `build` + `go test ./...`, plus a
+  `smoke` job that builds the image, boots it `--privileged --cgroupns=host`, checks `/readyz`,
+  runs `scripts/smoke_languages.sh` (all seven languages → `accepted`) under seccomp enforce,
+  and asserts a `ptrace` submission is killed — the regression gate for the seccomp policy.
 
 ---
 

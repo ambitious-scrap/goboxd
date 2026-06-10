@@ -56,6 +56,10 @@ Each execution runs inside nsjail with:
 - Process count limit enforced two ways: `--rlimit_nproc` (per-UID) plus cgroup v2 `pids.max` (absolute, hierarchical) set from `max_processes` — the cgroup cap is the real fork-bomb guard because `rlimit_nproc` is shared across all concurrent runs under the sandbox UID
 - Optional CPU bandwidth cap via cgroup v2 `cpu.max`, set from the per-language `cpu_max_percent` config field (server-side only, not a request limit). Disabled by default (`max`); a sub-core quota throttles the process and inflates wall-clock time
 - File size limit (`--rlimit_fsize`, 100 MiB)
+- seccomp-bpf syscall filter (`--seccomp_string`, kafel), **enforced by default**: a shared
+  deny-list (`DEFAULT ALLOW`) that kills the kernel sandbox-escape surface (`ptrace`, `bpf`,
+  `mount`, module loading, `kexec`, `process_vm_*`, namespace ops) while leaving threaded/JIT
+  runtimes intact. See `docs/security.md` §8.
 
 The cgroup `memory`, `cpu` and `pids` controllers are delegated into the parent cgroup once at startup; each is enabled independently so a host that cannot delegate `cpu`/`pids` still gets memory accounting. `pids.max` and `cpu.max` are best-effort — skipped silently when the controller is unavailable.
 
@@ -81,8 +85,8 @@ Identical resubmissions (common on contestant retries) skip recompilation via a 
 
 - **Key:** `sha256(langID, toolchainVersion, sha256(source), buildFlags, artifactFilename)`. The toolchain version comes from the per-language smoke probe, so a compiler bump never serves a stale binary. An unknown (empty) toolchain version skips the cache entirely.
 - **Hit:** cached files are copied into the fresh jail (mode bits preserved, so `a.out` stays executable) and the stored build stdout/stderr/duration are replayed; the compile is skipped.
-- **Single-flight:** an in-process keyed mutex spans get → build → put, so identical concurrent submissions compile exactly once.
-- **Eviction:** a count cap (`CacheMaxEntries`, default 512) evicts the oldest entry by mtime on insert; a startup TTL sweep removes stale entries. Only successful builds are cached. All disk/IO errors degrade gracefully to a miss — the cache never fails a run.
+- **Single-flight:** an in-process keyed semaphore spans get → build → put, so identical concurrent submissions compile exactly once. The wait is context-cancellable — a disconnecting client unblocks immediately rather than parking until the in-flight compile finishes.
+- **Eviction:** a count cap (`CacheMaxEntries`, default 512) evicts the oldest entry by mtime on insert; a startup TTL sweep removes stale entries. Commit + eviction are serialized under a cache-wide lock, so concurrent `Put`s on different keys cannot race each other's rename/`RemoveAll`. Only successful builds are cached. All disk/IO errors degrade gracefully to a miss — the cache never fails a run.
 
 ## Performance
 

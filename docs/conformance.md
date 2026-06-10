@@ -48,3 +48,18 @@ Last verified: 2026-06-09 (commit `114be18`).
 |---|---|---|
 | Only build output reused; run phase always live (languages.md:106) | cache gates compile only; run executes per test — `internal/runner/runner.go` | match |
 | Cache key must not serve stale binary across toolchain/flag changes | key = langID + toolchainVersion + sha256(source) + buildFlags + artifactFilename — `internal/artifactcache/artifactcache.go:44-57` | match |
+| Single-flight wait honors request cancellation; eviction is race-free | `Lock(ctx,…)` selects on `ctx.Done()`; commit+`evict` under `dirMu` — `internal/artifactcache/artifactcache.go` (`-race` test) | match |
+
+## Sandbox hardening
+
+| Requirement | Implementation | Status |
+|---|---|---|
+| seccomp-bpf enforced by default | `server.seccomp_mode: enforce` + shared `&deny_seccomp` kafel deny-list on every language — `configs/languages.yaml` | match |
+| Filter blocks the escape surface but not legitimate runtimes | `ptrace`/`bpf`/`mount`/module-load/`kexec`/`process_vm_*`/namespace ops killed; `DEFAULT ALLOW` — verified: all 7 langs `accepted`, `ptrace` submission `runtime_error` | match |
+
+## Differential conformance vs reference
+
+| Requirement | Implementation | Status |
+|---|---|---|
+| Verdicts match the reference runner across languages | `tests/conformance` drives `/run` with `pyjail` reference fixtures (8 langs) under seccomp enforce; reference status enum mapped to ours | match |
+| Documented divergence where goboxd is more correct | `java/error_runtime`: reference records `OK` for a divide-by-zero; goboxd returns `runtime_error` (asserted as a known-reference-bug correction) | intentional |
