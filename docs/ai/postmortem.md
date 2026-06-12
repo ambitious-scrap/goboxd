@@ -55,3 +55,16 @@ The other thing the pass exposed was how much I'd left untested. `api`, `sandbox
 And the tests immediately earned their keep: the `limitedWriter` cap bug (Issue 8) fell out of writing `TestLimitedWriter`, not out of any live request. It was invisible in production because the default 64 KiB cap happens to align with `io.Copy`'s 32 KiB buffer — exactly the kind of bug that survives every real call and waits for a config change to detonate. Fixed it and confirmed oversize output truncates to a 200 against the running image.
 
 Everything else I checked live instead of assuming: `/readyz` green for all seven languages, `memory_peak_kb` coming back non-zero from the real cgroup (OOM landing exactly on the 100 MiB cap), timeouts hitting the wall limit, and `build_failed` returning a 200 with the tests marked `not_executed`. None of that is new code — but "I'm pretty sure it works" and "I watched it work" are different sentences, and the spec is scored on the second one.
+
+---
+
+## Stage 3 Part 2 Postmortem
+
+### Surprises & Lessons Learned
+* **CPU-Quota Concurrency Coupling:** The biggest surprise was the regression when tying concurrency limits strictly to core counts (`MaxConcurrency = 2`). Because of the fast-lane reservation, Java was capped at a single concurrent slot, under-utilizing the actual hardware. Tying admission limits to CPU-cores is wrong for memory- or sleep-bound containers; resource-weighted scheduling is much better.
+* **Virtualized Cgroups:** Managing namespaces under `--cgroupns=host` was highly educational. Since it exposes host VM cgroups, we had to implement robust fallback detections (reading cgroup v1 files and parsing sentinels) to correctly calculate internal budgets.
+
+### AI Collaboration
+* Conventional commits (`feat`, `fix`, `docs`) and scoped task breakdowns kept the workspace exceptionally clean.
+* Staging, checking `/info` parameters, and running intermediate tests repeatedly caught configuration mismatches before they could roil the master branch.
+

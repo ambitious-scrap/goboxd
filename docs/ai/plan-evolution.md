@@ -90,3 +90,21 @@ This wasn't a design change so much as a reckoning with the gap between "impleme
 ## What still hasn't changed
 
 The package layout, the request/response contract, the seven security controls, and the concurrency model are all exactly as they were after the first week. The verification pass didn't move any of them — it just proved they do what the docs say.
+
+---
+
+## Stage 3 Part 2: Concurrency & Memory Gate Optimizations (June 12)
+
+### The Concurrency Bottleneck & Regression
+When trying to restrict the server to container quotas, a regression occurred: `MaxConcurrency` was tied directly to `runtime.GOMAXPROCS(0) = 2`. Because `fast_lane_reserved` claimed 1 slot, the heavy compiled lane (Java) was choked to exactly **1 concurrent slot**, stalling throughput at **1.1 RPS** while the second core sat completely idle.
+
+### Decoupling Admission Cost
+To resolve this, we:
+1. Raised `max_concurrency: 12` (heavy lane = 11) to decouple admission concurrency from CPU core counts.
+2. Introduced `SchedulerCostKB` to decouple the memory token budget from raw cgroup safety limits (`memory_kb`). Java was configured to reserve `204800` KB (200 MB ≈ observed peak RSS) while retaining its 512 MB cgroup kill limit.
+3. Added cgroup v1 fallback budget detection so that host VM limit fallbacks function correctly under `--cgroupns=host` virtual cgroups.
+4. Tuned the JVM sandboxes with `-XX:+UseSerialGC -XX:ActiveProcessorCount=1 -XX:MaxRAMPercentage=70` to eliminate parallel thread overhead.
+
+### Outcome
+Throughput (goodput) doubled from ~5.5 RPS to **10.81 RPS** under saturating load (100% success rate up to 10 RPS), and success-only latency collapsed to **1.08 seconds** with zero OOMs or time exceeded errors.
+
