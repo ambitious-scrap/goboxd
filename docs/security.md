@@ -120,3 +120,16 @@ Compiled artifacts are cached content-addressed under `server.cache_dir` (a host
 - **Toolchain-versioned key.** The key folds in the language's smoke-probe toolchain version, so a compiler/runtime upgrade can never serve a binary built by the old toolchain. An unknown (empty) version skips the cache rather than risking a stale hit.
 - **Exec from a copy.** On a hit, cached files are copied into the request's own jail; the canonical cached file is never handed to the sandbox, and the per-run jail remains the only writable surface nsjail sees.
 - **Bounded and best-effort.** A count cap evicts the oldest entry on insert and a startup TTL sweep reclaims stale entries, so the cache dir can't grow without bound. Any IO error degrades to a normal build — the cache can never fail or block a run. Only successful builds are stored.
+
+## 12. Sandbox Filesystem Isolation & Dynamic Bind Mounts
+
+**Location:** [internal/sandbox/sandbox.go:getSystemBindMounts](file:///Users/dinesh/Documents/Projects/Golang/goboxd-stage3/internal/sandbox/sandbox.go#L164-L177), [internal/sandbox/sandbox.go:buildNsjailArgs](file:///Users/dinesh/Documents/Projects/Golang/goboxd-stage3/internal/sandbox/sandbox.go#L209-L215)
+
+To close container escape and host reading/writing vulnerabilities (such as reading `/etc/passwd` or modifying `/etc/hostname`), filesystem bind mounts are tightened and dynamically managed:
+
+- **Read-Only System Mounts (`-R`):** System toolchain directories (`/bin`, `/usr`, `/lib`, `/lib64`, `/opt`, `/dev`) are bind-mounted read-only into the sandbox using nsjail's `-R` (or `--bindmount_ro`) flag instead of `-B` (which binds read-write). This prevents any sandboxed process from corrupting the container's compilers or shared libraries.
+- **Isolated Tempfs Mount (`--tmpfs /tmp`):** A secure, in-memory, completely isolated temporary directory is mounted over `/tmp` for every run using nsjail's `--tmpfs` flag. This satisfies workloads requiring `/tmp` writes (like Java/Node) without exposing host `/tmp` files or allowing data pollution between concurrent runs.
+- **Language-Specific Bind Mounts:** Rather than a global mount list, `getSystemBindMounts` dynamically restricts bind mounts based on the language requirement:
+  - **Python, Bash, JS, C, C++, Verilog, Elixir:** Run with no `/etc` mounted at all. Any attempt to read `/etc/passwd` or write `/etc/hostname` instantly fails with `FileNotFoundError` (exit code 1 / `runtime_error`), completely resolving filesystem traversal escapes.
+  - **Java, Rust, PowerShell:** Have `/etc` mounted read-only (`-R`) to support resolving compiler alternatives (symlink resolution for `/usr/bin/cc -> /etc/alternatives/cc`) or starting up dot-net runtimes (which look up `/etc/passwd` for user profiles). Even with `/etc` mounted, the read-only flag blocks host writes (raises `PermissionError` / `runtime_error`).
+

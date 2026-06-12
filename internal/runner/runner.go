@@ -185,6 +185,7 @@ func (r *Runner) Execute(ctx context.Context, req RunRequest) (*RunResult, error
 	for i, tc := range req.Tests {
 		start := time.Now()
 		rr, err := r.sb.Run(ctx, sandbox.RunConfig{
+			LanguageID:    req.Language.ID,
 			WorkDir:       jailPath,
 			Cmd:           runCmd,
 			Args:          runArgs,
@@ -315,6 +316,7 @@ func (r *Runner) build(ctx context.Context, req RunRequest, jailPath string, var
 
 	start := time.Now()
 	br, err := r.sb.Run(ctx, sandbox.RunConfig{
+		LanguageID:    req.Language.ID,
 		WorkDir:       jailPath,
 		Cmd:           registry.ResolveOne(req.Language.Build.Cmd, vars),
 		Args:          args,

@@ -29,10 +29,11 @@ func has(args []string, v string) bool {
 
 func TestBuildNsjailArgs_Common(t *testing.T) {
 	cfg := RunConfig{
-		WorkDir: "/jail/abc",
-		Cmd:     "/usr/bin/python3",
-		Args:    []string{"solution.py"},
-		Limits:  config.Limits{WallTimeS: 5, MemoryKB: 262144, MaxProcesses: 64},
+		LanguageID: "py3",
+		WorkDir:    "/jail/abc",
+		Cmd:        "/usr/bin/python3",
+		Args:       []string{"solution.py"},
+		Limits:     config.Limits{WallTimeS: 5, MemoryKB: 262144, MaxProcesses: 64},
 	}
 	args := buildNsjailArgs(cfg, &cgroup{ok: false})
 
@@ -66,9 +67,10 @@ func TestBuildNsjailArgs_Common(t *testing.T) {
 
 func TestBuildNsjailArgs_CgroupVsRlimit(t *testing.T) {
 	cfg := RunConfig{
-		WorkDir: "/jail/abc",
-		Cmd:     "/bin/true",
-		Limits:  config.Limits{WallTimeS: 3, MemoryKB: 262144},
+		LanguageID: "py3",
+		WorkDir:    "/jail/abc",
+		Cmd:        "/bin/true",
+		Limits:     config.Limits{WallTimeS: 3, MemoryKB: 262144},
 	}
 
 	// cgroup available: use cgroup v2 memory.max, not rlimit_as.
@@ -106,9 +108,10 @@ func TestBuildNsjailArgs_CgroupVsRlimit(t *testing.T) {
 
 func TestBuildNsjailArgs_Seccomp(t *testing.T) {
 	base := RunConfig{
-		WorkDir: "/jail/abc",
-		Cmd:     "/bin/true",
-		Limits:  config.Limits{WallTimeS: 3},
+		LanguageID: "py3",
+		WorkDir:    "/jail/abc",
+		Cmd:        "/bin/true",
+		Limits:     config.Limits{WallTimeS: 3},
 	}
 	policy := "POLICY p { ALLOW { read, write } } USE p DEFAULT KILL"
 

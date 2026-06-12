@@ -24,6 +24,7 @@ func FuzzBuildNsjailArgs(f *testing.F) {
 			userArgs = strings.Split(argsBlob, "\x1f")
 		}
 		cfg := RunConfig{
+			LanguageID:    "py3",
 			WorkDir:       "/jail/fuzz",
 			Cmd:           cmd,
 			Args:          userArgs,

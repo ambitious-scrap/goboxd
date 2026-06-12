@@ -55,6 +55,7 @@ func NsjailVersion() string {
 
 // RunConfig holds everything needed to execute one command in nsjail.
 type RunConfig struct {
+	LanguageID string
 	NsjailPath string
 	WorkDir    string
 	Cmd        string
@@ -162,7 +163,17 @@ func Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 // (e.g. /lib64 exists on amd64 but not on arm64). /opt is included because
 // PowerShell installs its runtime under /opt/microsoft/powershell; without it
 // pwsh is unreachable inside the jail.
-var systemBindMounts = []string{"/bin", "/usr", "/lib", "/lib64", "/opt", "/dev", "/etc", "/tmp", "/var"}
+func getSystemBindMounts(langID string) []string {
+	// Base directories required by all languages
+	mounts := []string{"/bin", "/usr", "/lib", "/lib64", "/opt", "/dev"}
+
+	switch langID {
+	case "rust", "java", "powershell":
+		// Rust, Java, and Powershell require /etc (for compilers, security configs, passwd, etc.)
+		mounts = append(mounts, "/etc")
+	}
+	return mounts
+}
 
 func buildNsjailArgs(cfg RunConfig, cg *cgroup) []string {
 	memMiB := int64(cfg.Limits.MemoryKB) / 1024
@@ -177,12 +188,13 @@ func buildNsjailArgs(cfg RunConfig, cg *cgroup) []string {
 		"--time_limit", strconv.Itoa(cfg.Limits.WallTimeS),
 		"--rlimit_fsize", "100", // 100 MiB output cap
 		"--rlimit_nofile", "1000",
-		"--env", "TMP=/",
-		"--env", "TMPDIR=/",
+		"--env", "TMP=/tmp",
+		"--env", "TMPDIR=/tmp",
 		// PATH is required: the C/C++ compiler driver locates the linker (ld) via
 		// PATH, and Node looks up helpers via PATH. Without it, g++ fails with
 		// "collect2: cannot find 'ld'" and node hangs.
 		"--env", "PATH=/usr/local/bin:/usr/bin:/bin",
+		"--tmpfs", "/tmp",
 		"--rw",
 	}
 	if cfg.Limits.MaxProcesses > 0 {
@@ -210,10 +222,10 @@ func buildNsjailArgs(cfg RunConfig, cg *cgroup) []string {
 			args = append(args, "--rlimit_as", strconv.FormatInt(memMiB, 10)) // MiB
 		}
 	}
-	for _, dir := range systemBindMounts {
+	for _, dir := range getSystemBindMounts(cfg.LanguageID) {
 		// Skip missing sources; nsjail aborts the jail if a bind source doesn't exist.
 		if _, err := os.Stat(dir); err == nil {
-			args = append(args, "-B", dir)
+			args = append(args, "-R", dir)
 		}
 	}
 	// seccomp-bpf filter (kafel). Applied only when enabled and a policy exists,
