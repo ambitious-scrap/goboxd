@@ -22,7 +22,17 @@ server:
   # max_concurrency - fast_lane_reserved. Pure admission ordering — verdicts stay
   # load-independent. 0 disables. Default: max(1, max_concurrency/4), clamped so
   # heavy jobs keep >= 1 slot.
-  # fast_lane_reserved: 0
+  #
+  # Decouple admission concurrency from the CPU-core count. MemoryHog (and similar
+  # compiled jobs) are memory/wall-bound — mostly allocation + a ~1s hold, not CPU
+  # spin — so tying max_concurrency to the 2-core quota (GOMAXPROCS) throttles the
+  # heavy lane to 1 and serializes runs. The real governor is the per-run cgroup
+  # memory limit plus the scheduler memory-token budget (scheduler_memory_kb), which
+  # caps memory-heavy jobs to what RAM holds (~3 in a 2 GB box at 512 MB/job). Admit
+  # more than the core count and let memory tokens do the gating; the per-run cgroup
+  # cpu.max still bounds CPU, and the fast lane still guarantees light jobs a slot.
+  max_concurrency: 6
+  fast_lane_reserved: 1
   # Artifact cache (C-2): reuse the compiled output of identical submissions
   # (same source + flags + toolchain version). Verdict-neutral — only the build
   # step is reused; the run phase still executes live per test. The key includes
