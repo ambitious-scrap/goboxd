@@ -31,7 +31,7 @@ server:
   # caps memory-heavy jobs to what RAM holds (~3 in a 2 GB box at 512 MB/job). Admit
   # more than the core count and let memory tokens do the gating; the per-run cgroup
   # cpu.max still bounds CPU, and the fast lane still guarantees light jobs a slot.
-  max_concurrency: 6
+  max_concurrency: 12
   fast_lane_reserved: 1
   # Artifact cache (C-2): reuse the compiled output of identical submissions
   # (same source + flags + toolchain version). Verdict-neutral — only the build
@@ -181,6 +181,10 @@ languages:
         wall_time_s: 10
         memory_kb: 524288
         max_processes: 300
+        # Reserve ~200 MB against the scheduler memory budget (observed peak RSS is
+        # ~180 MB) rather than the full 524288 KB cgroup limit, so the gate can pack
+        # more concurrent Java runs that never approach their kill limit.
+        scheduler_cost_kb: 204800
     smoke:
       cmd: /usr/bin/java
       args: ["--version"]

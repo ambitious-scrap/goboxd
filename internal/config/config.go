@@ -113,6 +113,15 @@ type Limits struct {
 	// time, which can trip the wall_time_s limit. Leave at 0 unless graded on
 	// CPU-time rather than wall-time.
 	CPUMaxPercent int `yaml:"cpu_max_percent"`
+	// SchedulerCostKB is the memory this run reserves against the scheduler's
+	// memory-token budget (scheduler_memory_kb) at admission. It is decoupled from
+	// MemoryKB (the cgroup kill limit) on purpose: the limit is the safety ceiling
+	// a run may reach, while the cost should reflect the run's *observed* peak so
+	// the gate can pack more runs that never approach their limit. Server-side and
+	// per-language only — not part of the request limit schema. 0 falls back to
+	// MemoryKB (reserve the full limit). Set it from observed p95 RSS; too low
+	// risks OOM when real usage exceeds the reservation.
+	SchedulerCostKB int `yaml:"scheduler_cost_kb"`
 }
 
 type SmokeProbe struct {

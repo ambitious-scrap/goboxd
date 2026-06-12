@@ -386,7 +386,12 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.limiter.Release()
 
-	memCostKB := runLimits.MemoryKB
+	// Reserve the run's scheduler cost (observed peak) against the memory budget,
+	// not its full cgroup limit — see config.Limits.SchedulerCostKB.
+	memCostKB := runLimits.SchedulerCostKB
+	if memCostKB <= 0 {
+		memCostKB = runLimits.MemoryKB
+	}
 	if ok := s.memTokens.Acquire(ctx, memCostKB); !ok {
 		writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for memory budget")
 		return
@@ -596,6 +601,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 			"max_body_bytes":      s.cfg.Server.MaxBodyBytes,
 			"max_tests":           s.cfg.Server.MaxTests,
 			"max_concurrent_jobs": s.cfg.Server.MaxConcurrency,
+			"scheduler_memory_kb": s.cfg.Server.SchedulerMemoryKB,
 		},
 		Stats: map[string]any{
 			"jobs_total":               obs.TotalRequests.Load(),
