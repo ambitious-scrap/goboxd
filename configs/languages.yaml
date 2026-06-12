@@ -215,8 +215,8 @@ languages:
     name: PowerShell
     source_filename: solution.ps1
     run:
-      cmd: /usr/bin/pwsh
-      args: ["-NoProfile", "-NonInteractive", "-File", "{{source}}"]
+      cmd: /usr/bin/env
+      args: ["DOTNET_GCHeapHardLimit=10000000", "/usr/bin/pwsh", "-NoProfile", "-NonInteractive", "-File", "{{source}}"]
       limits:
         wall_time_s: 15
         memory_kb: 524288

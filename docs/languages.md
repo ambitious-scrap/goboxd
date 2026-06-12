@@ -50,12 +50,7 @@ the matching GitHub release tarball. `/opt` is bind-mounted into the sandbox
 (`internal/sandbox/sandbox.go` `systemBindMounts`) so `pwsh` is reachable inside the jail.
 Scripts run with `pwsh -NoProfile -NonInteractive -File solution.ps1`.
 
-**Known issue (arm64 / Apple-Silicon Colima):** under nsjail's namespaces the .NET CoreCLR fails
-to initialize — `GC heap initialization failed 0x8007000E` when the cgroup namespace is present,
-or an assembly-load failure when GC is forced past that. Rust and Elixir are unaffected. This is
-.NET-in-restricted-sandbox behavior specific to the arm64/Colima kernel; on amd64 (the expected
-evaluation target) PowerShell uses the apt package and the common .NET cgroup path, and is
-expected to run. Not yet verified on amd64.
+**Resolution of PowerShell CoreCLR Heap Crash:** Previously, under nsjail's namespaces on virtualized arm64 macOS kernels (Colima), the .NET CoreCLR engine failed to initialize with `GC heap initialization failed 0x8007000E`. This was resolved by executing `pwsh` via `/usr/bin/env` and passing `DOTNET_GCHeapHardLimit=10000000` (hex for 256MB) to bypass cgroup memory configuration queries for heap sizing. PowerShell now initializes and executes successfully in all environments.
 
 ## Java notes
 

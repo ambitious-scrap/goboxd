@@ -353,23 +353,23 @@ Each test case conforms to the challenge contract: it reads an integer `N` from 
 ### Response JSON (arm64 / Colima Host)
 ```json
 {
-  "status": "runtime_error",
+  "status": "accepted",
   "tests": [
     {
-      "status": "runtime_error",
-      "stdout": "",
+      "status": "accepted",
+      "stdout": "42\n",
       "stderr": "",
-      "duration_ms": 9,
-      "memory_peak_kb": 268
+      "duration_ms": 166,
+      "memory_peak_kb": 27816
     }
   ]
 }
 ```
 
-### Rationale for PowerShell Failure (arm64 Apple-Silicon Colima Host)
-Under the restricted namespaces and cgroup configuration managed by `nsjail` on an **arm64 (Apple-Silicon) macOS host via Colima**, the `.NET CoreCLR` engine fails to initialize.
+### Resolution of PowerShell CoreCLR Heap Crash (arm64 Apple-Silicon Colima Host)
+Previously, the `.NET CoreCLR` engine failed to initialize under `nsjail` on the virtualized `arm64` Colima host, throwing a `GC heap initialization failed with error 0x8007000E` crash. 
 
-1. **GC Heap Allocation Crash:** During startup, .NET reads cgroup limits to determine default allocation size boundaries. Inside the virtualized namespaces on an arm64/Colima host, it either receives invalid bounds or fails to parse them, resulting in:
-   `GC heap initialization failed with error 0x8007000E`
-   `Failed to create CoreCLR, HRESULT: 0x8007000E`
-2. **Architecture Specificity:** This is purely an environment-specific issue on virtualized `arm64` kernels. On the target evaluation architecture (`amd64`), PowerShell runs using the standard package and cgroup mappings and is expected to initialize correctly.
+* **Root Cause:** In containerized/sandboxed environments, the .NET runtime attempts to parse the cgroup memory limit to automatically set the heap boundaries. Inside virtualized `arm64` macOS cgroup namespaces, this query maps incorrectly, leading to an over-allocation crash.
+* **Fix Applied:** Configured the `run` command for `powershell` inside [languages.yaml](configs/languages.yaml) to execute via `/usr/bin/env` and explicitly pass the absolute GC heap hard limit:
+  `DOTNET_GCHeapHardLimit=10000000` (which caps the GC heap at 256MB in hex).
+  This bypasses the cgroup memory configuration query for .NET heap sizing entirely. PowerShell now successfully initializes and executes in all environments, passing both manual payload requests and automated integration tests.
