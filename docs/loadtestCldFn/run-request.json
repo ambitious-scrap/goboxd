@@ -6,7 +6,7 @@
   "tests": [
     {
       "stdin": "",
-      "expected_stdout": "MemoryHog OK mb=150 checksum=-101888\\n"
+      "expected_stdout": "MemoryHog OK mb=150 checksum=-101888\n"
     }
   ]
 }

@@ -96,7 +96,11 @@ payload = {
     "tests": [
         {
             "stdin": "",
-            "expected_stdout": "MemoryHog OK mb=150 checksum=-101888\\n",
+            # Real newline. The earlier harness used "\\n" (literal backslash-n),
+            # so every run mismatched and returned HTTP-200 wrong_output that was
+            # still counted as "success" — goodput here counts completions, and at
+            # idle this payload must return verdict "accepted" (asserted below).
+            "expected_stdout": "MemoryHog OK mb=150 checksum=-101888\n",
         }
     ],
 }
