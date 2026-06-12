@@ -31,12 +31,12 @@ type Server struct {
 	cfg    *config.Config
 	reg    *registry.Registry
 	runner *runner.Runner
-	// sem caps total concurrent admitted runs (MaxConcurrency). heavy further
-	// caps compiled (build != nil) jobs at MaxConcurrency-FastLaneReserved, so a
-	// burst of slow compiled jobs can never starve light interpreted jobs of
-	// admission. Acquire order is heavy-then-sem for heavy jobs; light jobs take
-	// sem only. Light never holds heavy, so the ordering cannot deadlock.
-	sem       chan struct{}
+	// limiter caps total concurrent admitted runs (AIMD, floor MaxConcurrency).
+	// heavy further caps compiled (build != nil) jobs at
+	// MaxConcurrency-FastLaneReserved, so a burst of slow compiled jobs can never
+	// starve light interpreted jobs of admission. Acquire order is
+	// heavy-then-limiter for heavy jobs; light jobs take the limiter only. Light
+	// never holds heavy, so the ordering cannot deadlock.
 	heavy     chan struct{}
 	limiter   *AdaptiveLimiter
 	metrics   *metrics.Metrics
@@ -73,9 +73,10 @@ func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smo
 		cfg:            cfg,
 		reg:            reg,
 		runner:         r,
-		sem:            make(chan struct{}, cfg.Server.MaxConcurrency),
 		heavy:          make(chan struct{}, max(1, cfg.Server.MaxConcurrency-cfg.Server.FastLaneReserved)),
-		limiter:        NewAdaptiveLimiter(int32(cfg.Server.MaxConcurrency), 64),
+		// AIMD floor = MaxConcurrency; ceiling = 4x so the light lane can grow
+		// under healthy latency without an arbitrary hardcoded cap.
+		limiter: NewAdaptiveLimiter(int32(cfg.Server.MaxConcurrency), int32(max(1, cfg.Server.MaxConcurrency)*4)),
 		metrics:        metrics.New(),
 		smokes:         smokes,
 		buildInfo:      bi,

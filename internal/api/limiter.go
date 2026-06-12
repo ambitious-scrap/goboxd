@@ -55,10 +55,19 @@ func (l *AdaptiveLimiter) Acquire(ctx context.Context) bool {
 		defer l.mu.Unlock()
 		for i, w := range l.waiters {
 			if w == ch {
+				// Still parked: genuinely cancelled before being woken. Just
+				// drop ourselves from the queue; no slot was ever granted.
 				l.waiters = append(l.waiters[:i], l.waiters[i+1:]...)
-				break
+				return false
 			}
 		}
+		// Not in the queue: wakeWaiters already removed us and did active++ to
+		// hand us a slot, but this select picked ctx.Done() in the race so the
+		// caller will not run. Release the granted slot (and pass it on) so every
+		// active++ is paired with an active--; otherwise active leaks upward until
+		// it pins the limit and admission stalls.
+		l.active--
+		l.wakeWaiters()
 		return false
 	}
 }
