@@ -62,6 +62,12 @@ type RunConfig struct {
 	Stdin      string
 	Limits     config.Limits
 	OutputCap  int
+	// SeccompMode is "off", "audit", or "enforce"; SeccompPolicy is the kafel
+	// program for this language. A filter is applied only when mode != "off" and
+	// the policy is non-empty. In "audit" mode --seccomp_log is added so denials
+	// are logged rather than (only) killed.
+	SeccompMode   string
+	SeccompPolicy string
 }
 
 // Result holds the outcome of a single sandboxed execution.
@@ -85,7 +91,7 @@ func Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 	// Dedicated cgroup for this run, named after the (unique) workdir, giving
 	// per-request memory accounting. Best-effort: if unavailable, cg.ok is false
 	// and we fall back to rlimit-only enforcement.
-	cg := setupCgroup(filepath.Base(cfg.WorkDir), cfg.Limits.MemoryKB)
+	cg := setupCgroup(filepath.Base(cfg.WorkDir), cfg.Limits.MemoryKB, cfg.Limits.MaxProcesses, cfg.Limits.CPUMaxPercent)
 	defer cg.cleanup()
 
 	argv := buildNsjailArgs(cfg, cg)
@@ -204,6 +210,16 @@ func buildNsjailArgs(cfg RunConfig, cg *cgroup) []string {
 		// Skip missing sources; nsjail aborts the jail if a bind source doesn't exist.
 		if _, err := os.Stat(dir); err == nil {
 			args = append(args, "-B", dir)
+		}
+	}
+	// seccomp-bpf filter (kafel). Applied only when enabled and a policy exists,
+	// so the default "off" path is byte-for-byte unchanged. In "audit" mode
+	// --seccomp_log records denied syscalls (pair with a permissive policy
+	// default to observe without killing).
+	if cfg.SeccompMode != "off" && cfg.SeccompMode != "" && cfg.SeccompPolicy != "" {
+		args = append(args, "--seccomp_string", cfg.SeccompPolicy)
+		if cfg.SeccompMode == "audit" {
+			args = append(args, "--seccomp_log")
 		}
 	}
 	args = append(args, "--")

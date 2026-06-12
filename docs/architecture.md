@@ -53,8 +53,11 @@ Each execution runs inside nsjail with:
 - A unique read-write workdir as the chroot (`--chroot <workdir> --cwd /`), with the host toolchain dirs bind-mounted read-only
 - Wall time limit (`--time_limit`)
 - Memory limit via cgroup v2 `memory.max` (`--use_cgroupv2 --cgroup_mem_max`); `--rlimit_as` is used only as a fallback when no cgroup mount is available
-- Process count limit (`--rlimit_nproc`)
+- Process count limit enforced two ways: `--rlimit_nproc` (per-UID) plus cgroup v2 `pids.max` (absolute, hierarchical) set from `max_processes` — the cgroup cap is the real fork-bomb guard because `rlimit_nproc` is shared across all concurrent runs under the sandbox UID
+- Optional CPU bandwidth cap via cgroup v2 `cpu.max`, set from the per-language `cpu_max_percent` config field (server-side only, not a request limit). Disabled by default (`max`); a sub-core quota throttles the process and inflates wall-clock time
 - File size limit (`--rlimit_fsize`, 100 MiB)
+
+The cgroup `memory`, `cpu` and `pids` controllers are delegated into the parent cgroup once at startup; each is enabled independently so a host that cannot delegate `cpu`/`pids` still gets memory accounting. `pids.max` and `cpu.max` are best-effort — skipped silently when the controller is unavailable.
 
 stdout and stderr are captured through a custom `limitedWriter` (`internal/sandbox/sandbox.go`) with a hard byte cap; excess output is discarded and a `...[truncated]` marker is appended.
 

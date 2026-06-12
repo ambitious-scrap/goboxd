@@ -14,6 +14,7 @@ import (
 	"github.com/thesouldev/goboxd/internal/config"
 	"github.com/thesouldev/goboxd/internal/flags"
 	"github.com/thesouldev/goboxd/internal/limits"
+	"github.com/thesouldev/goboxd/internal/metrics"
 	"github.com/thesouldev/goboxd/internal/obs"
 	"github.com/thesouldev/goboxd/internal/registry"
 	"github.com/thesouldev/goboxd/internal/runner"
@@ -26,6 +27,7 @@ type Server struct {
 	reg       *registry.Registry
 	runner    *runner.Runner
 	sem       chan struct{}
+	metrics   *metrics.Metrics
 	smokes    map[string]registry.SmokeResult
 	buildInfo BuildInfo
 	nsjail    NsjailInfo
@@ -54,6 +56,7 @@ func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smo
 		reg:            reg,
 		runner:         r,
 		sem:            make(chan struct{}, cfg.Server.MaxConcurrency),
+		metrics:        metrics.New(),
 		smokes:         smokes,
 		buildInfo:      bi,
 		nsjail:         nsjail,
@@ -71,6 +74,13 @@ func (s *Server) Router() http.Handler {
 	r.Get("/info", s.info)
 	r.Post("/run", s.run)
 	return r
+}
+
+// MetricsHandler returns the Prometheus /metrics handler. It is served on a
+// separate admin port (see cmd/goboxd), never mounted on the public Router, so
+// submitters cannot scrape internal operational detail.
+func (s *Server) MetricsHandler() http.Handler {
+	return s.metrics.Handler()
 }
 
 // --- /run ---
@@ -245,6 +255,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	runLimits := limits.Merge(lang.Run.Limits, runOverride)
 
 	// Acquire concurrency slot (block until available or context cancelled).
+	waitStart := time.Now()
 	select {
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()
@@ -252,10 +263,14 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for slot")
 		return
 	}
+	s.metrics.QueueWait.Observe(time.Since(waitStart).Seconds())
 
 	obs.InFlight.Add(1)
 	obs.TotalRequests.Add(1)
+	s.metrics.RequestsTotal.Inc()
+	s.metrics.InFlight.Inc()
 	defer obs.InFlight.Add(-1)
+	defer s.metrics.InFlight.Dec()
 
 	tcs := make([]runner.TestCase, len(req.Tests))
 	for i, tc := range req.Tests {
@@ -275,14 +290,28 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		JailBase:         s.cfg.Server.JailBase,
 		NsjailPath:       s.cfg.Server.NsjailPath,
 		OutputCap:        s.cfg.Server.OutputCapBytes,
+		SeccompMode:      s.cfg.Server.SeccompMode,
 	})
 	if err != nil {
 		obs.TotalErrors.Add(1)
 		obs.MarkInternalError()
+		s.metrics.InternalErrors.Inc()
 		obs.Error(ctx, "runner failed", "err", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal_error", "execution engine error")
 		return
 	}
+
+	// Record metrics: build phase (only when the language builds) + one run
+	// observation per test, plus the verdict counter.
+	buildSeconds := -1.0
+	if lang.Build != nil {
+		buildSeconds = float64(result.BuildDurationMs) / 1000
+	}
+	runSeconds := make([]float64, len(result.Tests))
+	for i, tr := range result.Tests {
+		runSeconds[i] = float64(tr.DurationMs) / 1000
+	}
+	s.metrics.ObserveRun(req.Language, result.TopStatus, buildSeconds, runSeconds)
 
 	obs.Log(ctx, "run complete",
 		"language", req.Language,

@@ -20,3 +20,13 @@
 
 # Stage 3 Design and Rationale doc (ignored per user request)
 /docs/DESIGN_AND_RATIONALE.md
+
+# PR Analysis & Local PR copies
+/pr_analysis/
+/pull_requests/
+
+# Stage 1 leaderboard (compiled from judge comments) — kept local
+/goboxd-stage1-leaderboard.md
+
+# graphify knowledge-graph artifacts — generated, kept local
+/graphify-out/

@@ -26,18 +26,28 @@ type cgroup struct {
 	ok   bool
 }
 
-// memController enablement is computed exactly once (the first request that
-// needs it). setup runs under sync.Once because requests are concurrent and the
-// evacuation/subtree writes must not race.
+// cpuQuotaPeriodUs is the cgroup v2 cpu.max accounting period in microseconds.
+// cpu.max is written as "<quota_us> <period_us>"; quota = period * percent/100.
+const cpuQuotaPeriodUs = 100000
+
+// Controller enablement is computed exactly once (the first request that needs
+// it). setup runs under sync.Once because requests are concurrent and the
+// evacuation/subtree writes must not race. controllerAvailable records which of
+// memory/cpu/pids were successfully delegated into cgroupParent; memory gates
+// per-run accounting, cpu/pids are opportunistic hardening.
 var (
 	memControllerOnce    sync.Once
 	memControllerEnabled bool
+	controllerAvailable  = map[string]bool{}
 )
 
-// setupCgroup creates a dedicated cgroup named id with a hard memory cap of
-// memoryKB kilobytes. Returns a cgroup whose ok field reports whether memory
-// accounting is available for this run.
-func setupCgroup(id string, memoryKB int) *cgroup {
+// setupCgroup creates a dedicated cgroup named id and applies the per-run
+// resource caps that the available controllers support: a hard memory cap
+// (memoryKB), an absolute process-count cap (maxProcesses via pids.max), and an
+// optional CPU bandwidth cap (cpuMaxPercent via cpu.max). Returns a cgroup whose
+// ok field reports whether memory accounting is available for this run. pids/cpu
+// caps are best-effort: a missing controller is skipped silently.
+func setupCgroup(id string, memoryKB, maxProcesses, cpuMaxPercent int) *cgroup {
 	cg := &cgroup{}
 
 	if !enableMemoryController() {
@@ -59,6 +69,26 @@ func setupCgroup(id string, memoryKB int) *cgroup {
 		}
 		if err := os.WriteFile(filepath.Join(path, "memory.swap.max"), []byte("0"), 0o644); err != nil {
 			slog.Warn("cgroup: write memory.swap.max failed; swap not disabled", "path", path, "err", err)
+		}
+	}
+
+	// pids.max is the absolute fork-bomb guard: pids.current is hierarchical, so
+	// a cap here bounds the whole subtree (including nsjail's child cgroup). This
+	// is stronger than --rlimit_nproc, which is per-UID across the host and so is
+	// shared by every concurrent run under the sandbox UID.
+	if maxProcesses > 0 && controllerAvailable["pids"] {
+		if err := os.WriteFile(filepath.Join(path, "pids.max"), []byte(strconv.Itoa(maxProcesses)), 0o644); err != nil {
+			slog.Warn("cgroup: write pids.max failed; process cap relies on rlimit_nproc only", "path", path, "err", err)
+		}
+	}
+
+	// cpu.max throttles CPU bandwidth for the subtree. Opt-in per language; 0
+	// leaves it at the inherited default ("max", unlimited).
+	if cpuMaxPercent > 0 && controllerAvailable["cpu"] {
+		quota := cpuQuotaPeriodUs * cpuMaxPercent / 100
+		val := strconv.Itoa(quota) + " " + strconv.Itoa(cpuQuotaPeriodUs)
+		if err := os.WriteFile(filepath.Join(path, "cpu.max"), []byte(val), 0o644); err != nil {
+			slog.Warn("cgroup: write cpu.max failed; CPU quota not enforced", "path", path, "err", err)
 		}
 	}
 
@@ -89,9 +119,9 @@ func enableMemoryController() bool {
 		// has internal processes ("no internal process" rule). The first attempt
 		// may therefore fail; if so, evacuate the root's processes into a leaf
 		// cgroup and retry. Success is verified via the parent's cgroup.controllers.
-		if !tryEnableMemory() {
+		if !tryEnableControllers() {
 			evacuateRootProcs()
-			if !tryEnableMemory() {
+			if !tryEnableControllers() {
 				return
 			}
 		}
@@ -100,9 +130,18 @@ func enableMemoryController() bool {
 	return memControllerEnabled
 }
 
-// tryEnableMemory writes +memory into the root and parent subtree_control and
-// reports whether the memory controller is now available in cgroupParent.
-func tryEnableMemory() bool {
+// tryEnableControllers delegates the memory, cpu and pids controllers into the
+// root and parent subtree_control, then records in controllerAvailable which of
+// them actually became available in cgroupParent. It reports whether memory (the
+// controller that gates per-run accounting) is available; cpu and pids are
+// opportunistic and may be absent on hosts that don't delegate them.
+func tryEnableControllers() bool {
+	// Enable memory first. If we enable cpu or pids first when memory fails due to
+	// EBUSY (root has processes), their writes succeed (since they are already
+	// enabled). Then, when we evacuate root and try to enable memory, the kernel
+	// will reject enabling memory with EOPNOTSUPP because the child cgroup (_svc)
+	// has processes but doesn't have memory enabled. By ensuring memory is the
+	// only controller we attempt to enable initially, we avoid this constraint.
 	_ = os.WriteFile(filepath.Join(cgroupRoot, "cgroup.subtree_control"), []byte("+memory"), 0o644)
 	_ = os.WriteFile(filepath.Join(cgroupParent, "cgroup.subtree_control"), []byte("+memory"), 0o644)
 
@@ -110,12 +149,28 @@ func tryEnableMemory() bool {
 	if err != nil {
 		return false
 	}
+	for c := range controllerAvailable {
+		delete(controllerAvailable, c)
+	}
 	for _, c := range strings.Fields(string(data)) {
-		if c == "memory" {
-			return true
+		controllerAvailable[c] = true
+	}
+
+	// Only if memory succeeded, try to enable cpu and pids.
+	if controllerAvailable["memory"] {
+		for _, ctrl := range []string{"+cpu", "+pids"} {
+			_ = os.WriteFile(filepath.Join(cgroupRoot, "cgroup.subtree_control"), []byte(ctrl), 0o644)
+			_ = os.WriteFile(filepath.Join(cgroupParent, "cgroup.subtree_control"), []byte(ctrl), 0o644)
+		}
+		// Refresh available controllers
+		if refreshed, err := os.ReadFile(filepath.Join(cgroupParent, "cgroup.controllers")); err == nil {
+			for _, c := range strings.Fields(string(refreshed)) {
+				controllerAvailable[c] = true
+			}
 		}
 	}
-	return false
+
+	return controllerAvailable["memory"]
 }
 
 // evacuateRootProcs moves every process in the cgroup-namespace root into a

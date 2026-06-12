@@ -1,8 +1,17 @@
 server:
   port: 8080
+  # Prometheus /metrics admin port, served separately from the public API so
+  # submitters can't scrape internal detail. Default 9090; set <=0 to disable.
+  metrics_port: 9090
   jail_base: /tmp/goboxd
   nsjail_path: /usr/local/bin/nsjail
   output_cap_bytes: 65536
+  # seccomp-bpf syscall filtering: off | audit | enforce.
+  # off     = no filter (default). audit = load each language's seccomp_policy
+  # and add --seccomp_log (observe, don't kill — pair with a permissive policy
+  # default). enforce = apply the policy as written. A language without a
+  # seccomp_policy is never filtered. See docs/security.md.
+  seccomp_mode: "off"
 
 languages:
   - id: py3
