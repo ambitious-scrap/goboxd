@@ -7,6 +7,10 @@
 # Private AI development journals — kept local, not version-controlled
 /docs/ai/
 
+# Personal prep / private notes — kept local, not version-controlled
+/PERSONAL_README.md
+/docs/INTERVIEW_PREP.md
+
 # Agent tooling artifacts — kept local, not version-controlled
 /.codex/
 /AGENTS.md
@@ -38,3 +42,6 @@
 
 # Generated go fuzz corpus (seed inputs live in *_test.go via f.Add).
 **/testdata/fuzz/
+
+# Local validation/benchmark run logs & reports — generated, kept local
+/validation-logs/

@@ -121,6 +121,9 @@ demo-only, env-gated CORS allowance (`GOBOXD_DEMO_CORS_ORIGIN`, off by default, 
 
 Short rationale for the choices a reviewer is most likely to question. Fuller analysis lives
 in [docs/improvements.md](docs/improvements.md) (Part C) and [docs/architecture.md](docs/architecture.md).
+A from-scratch teaching walkthrough of every decision, quirk, and rejected alternative —
+written for a technical but non-domain-expert reader — is in
+[docs/DESIGN_AND_RATIONALE.md](docs/DESIGN_AND_RATIONALE.md).
 
 - **`chi` over a framework.** Three read-only endpoints and one POST don't justify a heavier
   framework; `chi` adds request-id middleware and a panic-recovery handler on top of
