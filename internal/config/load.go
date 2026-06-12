@@ -21,8 +21,13 @@ const (
 	defaultMetricsPort     = 9090
 	defaultCacheDir        = "/tmp/goboxd-cache"
 	defaultCacheMaxEntries = 512
-	cgroupMemoryMaxPath    = "/sys/fs/cgroup/memory.max"
+	cgroupMemoryMaxPath    = "/sys/fs/cgroup/memory.max"                  // cgroup v2
+	cgroupV1MemoryLimit    = "/sys/fs/cgroup/memory/memory.limit_in_bytes" // cgroup v1
 )
+
+// cgroupMemoryPaths is the ordered list of files probed for the container memory
+// limit (v2 first, then v1). A package var so tests can point it at fixtures.
+var cgroupMemoryPaths = []string{cgroupMemoryMaxPath, cgroupV1MemoryLimit}
 
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -110,17 +115,40 @@ func applyDefaults(cfg *Config) {
 }
 
 func defaultSchedulerMemoryKB(maxConcurrency int) int {
-	data, err := os.ReadFile(cgroupMemoryMaxPath)
-	if err == nil {
-		raw := strings.TrimSpace(string(data))
-		if raw != "" && raw != "max" {
-			if bytes, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && bytes > 0 {
-				return int((bytes / 1024) * 85 / 100)
-			}
-		}
+	if bytes, ok := cgroupMemoryLimitBytes(); ok {
+		return int((bytes / 1024) * 85 / 100)
 	}
-
+	// No finite cgroup limit visible (e.g. --cgroupns=host hides memory.max):
+	// fall back to a per-slot reservation. Note this scales with concurrency, so
+	// the token gate is effectively inert under the fallback — prefer a real
+	// limit, or set scheduler_memory_kb explicitly.
 	return max(1, maxConcurrency) * 524288
+}
+
+// cgroupMemoryLimitBytes returns the container memory limit in bytes from cgroup
+// v2 (memory.max) or v1 (memory.limit_in_bytes). ok is false when neither yields a
+// finite limit: the file is absent, says "max", or holds the v1 "unlimited"
+// sentinel (PAGE_COUNTER_MAX, near int64 max).
+func cgroupMemoryLimitBytes() (int64, bool) {
+	for _, p := range cgroupMemoryPaths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		raw := strings.TrimSpace(string(data))
+		if raw == "" || raw == "max" {
+			continue
+		}
+		n, perr := strconv.ParseInt(raw, 10, 64)
+		if perr != nil || n <= 0 {
+			continue
+		}
+		if n >= 1<<62 { // v1 unlimited sentinel — treat as no limit
+			continue
+		}
+		return n, true
+	}
+	return 0, false
 }
 
 func applyLanguageDefaults(lang *Language) {
