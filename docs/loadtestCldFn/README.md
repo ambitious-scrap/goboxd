@@ -45,10 +45,11 @@ Throughput is therefore governed by how many runs fit in RAM concurrently, not b
 |---|---|---|---|---|---|
 | **Phase 0** — limiter slot-leak fix, honest metric | 3.15 | 3.51 | 3.27 | 3.00 | 6507 ms |
 | **CPU-quota** — `MaxConcurrency = GOMAXPROCS = 2` | 1.17 | 1.04 | 1.10 | 1.10 | 6483 ms |
-| **Tuned** — memory-governed admission (final) | **5.00** | **5.72** | **5.64** | **5.00** | 8804 ms |
+| **Tuned** — memory-governed admission | 5.00 | 5.72 | 5.64 | 5.00 | 8804 ms |
+| **Tuned2** — decoupled cost + raised concurrency (final) | **5.03** | **10.03** | **10.55** | **10.81** | **3982 ms** |
 
 (goodput in successful exec/s; full per-rate CSVs: `results-phase0.csv`,
-`results-full.csv`, `results-tuned.csv`.)
+`results-full.csv`, `results-tuned.csv`, `results-tuned2.csv`.)
 
 ### What each change did
 
@@ -63,12 +64,11 @@ Throughput is therefore governed by how many runs fit in RAM concurrently, not b
   concurrency to CPU count is wrong for a memory-bound workload — Phase 0's "buggy"
   `NumCPU = 4` was accidentally right (`4 − 1 = 3` matched what RAM holds).
 
-* **Tuned (final):** decouple admission from the core count — `max_concurrency: 6`,
+* **Tuned (memory-governed admission):** decouple admission from the core count — `max_concurrency: 6`,
   `fast_lane_reserved: 1` — and let the **scheduler memory-token gate** govern
-  memory-heavy jobs while the per-run cgroup `cpu.max` bounds CPU. Goodput rose to
-  ~5.5/s (+72 % over Phase 0, 5× the CPU-quota config). Verdict mix from `/metrics`:
-  **623 accepted, 0 memory_exceeded, 0 time_exceeded**, 16 wrong_output + 1
-  runtime_error (~2.5 % transients) — the goodput is real `accepted` work, not OOMs.
+  memory-heavy jobs. Goodput rose to ~5.0–5.7/s, but was still capped by the heavy lane concurrency limit of 5.
+
+* **Tuned2 (decoupled cost + raised concurrency - final):** raised server `max_concurrency: 12` (heavy lane limit = 11) and decoupled the scheduler memory token cost from the cgroup safety limit (`scheduler_cost_kb: 204800` for Java run). This allowed the memory token budget (6.29 GB) to safely pack up to 11 concurrent Java runs. Goodput doubled to **~10.8 RPS** (100% success rate up to 10 RPS) and success latency was cut in half (p95 at 50 RPS dropped from 8.8s to **3.98s**). Verdict mix from `/metrics`: **1075 accepted, 0 memory_exceeded, 0 time_exceeded**, showing clean executions under maximum load.
 
 ### Honest caveat on the memory budget
 
