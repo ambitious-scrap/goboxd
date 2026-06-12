@@ -35,6 +35,11 @@ type ServerConfig struct {
 	// disables the reservation (every job competes for the full pool, as before).
 	// Default: max(1, MaxConcurrency/4), clamped so heavy jobs keep >=1 slot.
 	FastLaneReserved int `yaml:"fast_lane_reserved"`
+
+	// SchedulerMemoryKB is the total admission memory budget for concurrently
+	// running jobs. 0 means auto-detect cgroup memory.max and use 85%; if
+	// unavailable, fallback to MaxConcurrency * 512 MiB.
+	SchedulerMemoryKB int `yaml:"scheduler_memory_kb"`
 	// CacheEnabled toggles the content-addressed artifact cache (compiled
 	// languages only). A pointer so an absent value defaults to true while an
 	// explicit `cache_enabled: false` disables it. Default: true.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,6 +21,7 @@ const (
 	defaultMetricsPort     = 9090
 	defaultCacheDir        = "/tmp/goboxd-cache"
 	defaultCacheMaxEntries = 512
+	cgroupMemoryMaxPath    = "/sys/fs/cgroup/memory.max"
 )
 
 func Load(path string) (*Config, error) {
@@ -42,7 +45,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Server.Port = defaultPort
 	}
 	if cfg.Server.MaxConcurrency == 0 {
-		cfg.Server.MaxConcurrency = runtime.NumCPU()
+		cfg.Server.MaxConcurrency = runtime.GOMAXPROCS(0)
 	}
 	// Derived from MaxConcurrency, so resolve it first (above).
 	if cfg.Server.MaxQueue == 0 {
@@ -62,6 +65,10 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.FastLaneReserved > cfg.Server.MaxConcurrency-1 {
 		cfg.Server.FastLaneReserved = max(0, cfg.Server.MaxConcurrency-1)
+	}
+
+	if cfg.Server.SchedulerMemoryKB == 0 {
+		cfg.Server.SchedulerMemoryKB = defaultSchedulerMemoryKB(cfg.Server.MaxConcurrency)
 	}
 	if cfg.Server.CacheEnabled == nil {
 		enabled := true
@@ -100,6 +107,20 @@ func applyDefaults(cfg *Config) {
 	for i := range cfg.Languages {
 		applyLanguageDefaults(&cfg.Languages[i])
 	}
+}
+
+func defaultSchedulerMemoryKB(maxConcurrency int) int {
+	data, err := os.ReadFile(cgroupMemoryMaxPath)
+	if err == nil {
+		raw := strings.TrimSpace(string(data))
+		if raw != "" && raw != "max" {
+			if bytes, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && bytes > 0 {
+				return int((bytes / 1024) * 85 / 100)
+			}
+		}
+	}
+
+	return max(1, maxConcurrency) * 524288
 }
 
 func applyLanguageDefaults(lang *Language) {

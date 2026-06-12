@@ -52,3 +52,7 @@
 
 # Local validation/benchmark run logs & reports — generated, kept local
 /validation-logs/
+
+# vegeta intermediate reports
+docs/loadtest*/report-*.bin
+docs/loadtest*/report-*.json

@@ -145,7 +145,9 @@ languages:
     artifact_filename_strategy: from_request
     build:
       cmd: /usr/bin/javac
-      args: ["{{flags}}", "{{source}}"]
+      # -J-XX:ActiveProcessorCount=1 runs the compiler JVM single-threaded so a
+      # build does not spin up GOMAXPROCS-many GC/JIT threads on the shared 2 vCPU.
+      args: ["-J-XX:ActiveProcessorCount=1", "{{flags}}", "{{source}}"]
       limits:
         wall_time_s: 15
         memory_kb: 524288
@@ -157,7 +159,14 @@ languages:
         - "UTF-8"
     run:
       cmd: /usr/bin/java
-      args: ["{{artifact}}"]
+      # Container-aware JVM tuning, passed as argv (NOT JAVA_TOOL_OPTIONS, which
+      # prints a "Picked up ..." banner to stderr and would pollute output diffs):
+      #   UseSerialGC            — single-threaded GC; parallel/G1 GC threads are
+      #                            pure overhead on a sub-core run that lives ~1s.
+      #   ActiveProcessorCount=1 — stop the JVM sizing thread pools to host cores.
+      #   MaxRAMPercentage=70    — cap heap at 70% of the per-run cgroup memory
+      #                            limit so the JVM stays inside its memory_kb.
+      args: ["-XX:+UseSerialGC", "-XX:ActiveProcessorCount=1", "-XX:MaxRAMPercentage=70", "{{artifact}}"]
       limits:
         wall_time_s: 10
         memory_kb: 524288

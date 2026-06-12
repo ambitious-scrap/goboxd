@@ -39,6 +39,7 @@ type Server struct {
 	// never holds heavy, so the ordering cannot deadlock.
 	heavy     chan struct{}
 	limiter   *AdaptiveLimiter
+	memTokens *memoryTokens
 	metrics   *metrics.Metrics
 	smokes    map[string]registry.SmokeResult
 	buildInfo BuildInfo
@@ -77,6 +78,7 @@ func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smo
 		// AIMD floor = MaxConcurrency; ceiling = 4x so the light lane can grow
 		// under healthy latency without an arbitrary hardcoded cap.
 		limiter: NewAdaptiveLimiter(int32(cfg.Server.MaxConcurrency), int32(max(1, cfg.Server.MaxConcurrency)*4)),
+		memTokens: newMemoryTokens(cfg.Server.SchedulerMemoryKB),
 		metrics:        metrics.New(),
 		smokes:         smokes,
 		buildInfo:      bi,
@@ -383,6 +385,14 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.limiter.Release()
+
+	memCostKB := runLimits.MemoryKB
+	if ok := s.memTokens.Acquire(ctx, memCostKB); !ok {
+		writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for memory budget")
+		return
+	}
+	defer s.memTokens.Release(memCostKB)
+
 	s.metrics.QueueWait.WithLabelValues(lane).Observe(time.Since(waitStart).Seconds())
 
 	obs.InFlight.Add(1)
