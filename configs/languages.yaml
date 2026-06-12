@@ -165,3 +165,62 @@ languages:
     smoke:
       cmd: /usr/bin/iverilog
       args: ["-V"]
+
+  - id: rust
+    name: Rust
+    source_filename: solution.rs
+    artifact: solution
+    build:
+      cmd: /usr/bin/rustc
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
+      limits:
+        wall_time_s: 30
+        memory_kb: 1048576
+        max_processes: 100
+      flag_allowlist:
+        - "-O"
+        - "--edition"
+        - "--edition=*"
+        - "-C"
+        - "opt-level=*"
+    run:
+      cmd: ./{{artifact}}
+      args: []
+      limits:
+        wall_time_s: 5
+        memory_kb: 262144
+        max_processes: 64
+    smoke:
+      cmd: /usr/bin/rustc
+      args: ["--version"]
+
+  - id: elixir
+    name: Elixir
+    source_filename: solution.exs
+    run:
+      # Elixir runs on the BEAM VM: it spawns a scheduler thread per core and
+      # reserves a large virtual address space, so it needs generous process and
+      # memory limits and relies on cgroup memory.max (RSS) rather than RLIMIT_AS.
+      cmd: /usr/bin/elixir
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 15
+        memory_kb: 524288
+        max_processes: 300
+    smoke:
+      cmd: /usr/bin/elixir
+      args: ["--version"]
+
+  - id: powershell
+    name: PowerShell
+    source_filename: solution.ps1
+    run:
+      cmd: /usr/bin/pwsh
+      args: ["-NoProfile", "-NonInteractive", "-File", "{{source}}"]
+      limits:
+        wall_time_s: 15
+        memory_kb: 524288
+        max_processes: 200
+    smoke:
+      cmd: /usr/bin/pwsh
+      args: ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"]

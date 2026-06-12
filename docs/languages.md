@@ -13,6 +13,9 @@ Languages are defined in `configs/languages.yaml`. Adding a language requires a 
 | `bash` | Bash | `/bin/bash` | `solution.sh` |
 | `javascript` | JavaScript (Node.js) | `/usr/bin/node` | `solution.js` |
 | `verilog` | Verilog | `/usr/bin/iverilog` | `solution.v` |
+| `rust` | Rust | `/usr/bin/rustc` | `solution.rs` |
+| `elixir` | Elixir | `/usr/bin/elixir` | `solution.exs` |
+| `powershell` | PowerShell | `/usr/bin/pwsh` | `solution.ps1` |
 
 ## Resource limits
 
@@ -31,6 +34,28 @@ an override replaces the default for that field (missing fields fall back to the
 | bash | — | — | 9s | 100 MiB |
 | javascript | — | — | 9s | 256 MiB |
 | verilog | 10s | 100 MiB | 9s | 100 MiB |
+| rust | 30s | 1 GiB | 5s | 256 MiB |
+| elixir | — | — | 15s | 512 MiB |
+| powershell | — | — | 15s | 512 MiB |
+
+## Elixir notes
+
+Elixir runs on the BEAM VM, which spawns a scheduler thread per core and reserves a large *virtual* address space at startup. It therefore needs a high `max_processes` (300) and relies on cgroup `memory.max` (RSS-based) for the memory limit. Under the RLIMIT_AS fallback (no cgroup v2), BEAM may fail to start — run the container with `--cgroupns=host` so memory accounting is available.
+
+## PowerShell notes
+
+PowerShell installs its .NET runtime under `/opt/microsoft/powershell/7`. On amd64 this comes
+from Microsoft's apt repo; on arm64 (no apt package) `scripts/lang_install/powershell.sh` pulls
+the matching GitHub release tarball. `/opt` is bind-mounted into the sandbox
+(`internal/sandbox/sandbox.go` `systemBindMounts`) so `pwsh` is reachable inside the jail.
+Scripts run with `pwsh -NoProfile -NonInteractive -File solution.ps1`.
+
+**Known issue (arm64 / Apple-Silicon Colima):** under nsjail's namespaces the .NET CoreCLR fails
+to initialize — `GC heap initialization failed 0x8007000E` when the cgroup namespace is present,
+or an assembly-load failure when GC is forced past that. Rust and Elixir are unaffected. This is
+.NET-in-restricted-sandbox behavior specific to the arm64/Colima kernel; on amd64 (the expected
+evaluation target) PowerShell uses the apt package and the common .NET cgroup path, and is
+expected to run. Not yet verified on amd64.
 
 ## Java notes
 

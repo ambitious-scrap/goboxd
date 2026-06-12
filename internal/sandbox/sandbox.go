@@ -153,8 +153,10 @@ func Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 // systemBindMounts are read-only bind mounts providing toolchains to the sandbox.
 // Each is included only if it exists on the host: nsjail aborts the entire jail
 // if a bind-mount source is missing, and some paths are architecture-dependent
-// (e.g. /lib64 exists on amd64 but not on arm64).
-var systemBindMounts = []string{"/bin", "/usr", "/lib", "/lib64", "/dev", "/etc", "/tmp", "/var"}
+// (e.g. /lib64 exists on amd64 but not on arm64). /opt is included because
+// PowerShell installs its runtime under /opt/microsoft/powershell; without it
+// pwsh is unreachable inside the jail.
+var systemBindMounts = []string{"/bin", "/usr", "/lib", "/lib64", "/opt", "/dev", "/etc", "/tmp", "/var"}
 
 func buildNsjailArgs(cfg RunConfig, cg *cgroup) []string {
 	memMiB := int64(cfg.Limits.MemoryKB) / 1024

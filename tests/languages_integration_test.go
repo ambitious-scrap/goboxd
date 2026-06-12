@@ -48,6 +48,9 @@ var helloCases = []helloCase{
 		expected:         "hello\n",
 	},
 	{id: "verilog", source: "module main;\ninitial begin\n  $display(\"hello\");\n  $finish;\nend\nendmodule\n", expected: "hello\n"},
+	{id: "rust", source: "fn main() { println!(\"hello\"); }\n", expected: "hello\n"},
+	{id: "elixir", source: "IO.puts(\"hello\")\n", expected: "hello\n"},
+	{id: "powershell", source: "Write-Output \"hello\"\n", expected: "hello\n"},
 }
 
 func TestLanguages_HelloWorld(t *testing.T) {

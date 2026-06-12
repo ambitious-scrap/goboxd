@@ -13,3 +13,7 @@
 
 # Local handoff notes — not version-controlled
 /handoff.md
+
+# Judging fixtures + OS cruft — kept local
+/payloads/
+.DS_Store
