@@ -74,12 +74,25 @@ The `memory`, `cpu`, and `pids` controllers are delegated independently at start
 
 **Location:** `internal/sandbox/sandbox.go:buildNsjailArgs`, `internal/config` (`server.seccomp_mode`, `language.seccomp_policy`)
 
-nsjail can load a kafel seccomp-bpf program per run via `--seccomp_string`, restricting the syscalls user code may make. This is **off by default** (no filter, current behaviour). When `server.seccomp_mode` is `audit` or `enforce` and a language defines a `seccomp_policy`:
+nsjail loads a kafel seccomp-bpf program per run via `--seccomp_string`, restricting the syscalls user code may make. This is layered **on top of** namespace + capability isolation: namespaces stop you from *seeing* host resources; seccomp stops you from *reaching the kernel surface* used to break out of them. `server.seccomp_mode` selects the behaviour:
 
-- **audit** — the policy is loaded together with `--seccomp_log`, so denied syscalls are logged. Pair with a permissive policy default (e.g. `DEFAULT LOG`/`ALLOW`) to observe a workload's real syscall set without killing it. Roll out here first.
-- **enforce** — the policy is applied as written (e.g. `DEFAULT KILL`), so disallowed syscalls terminate the process.
+- **off** — no filter (byte-for-byte the un-filtered path).
+- **audit** — the policy is loaded together with `--seccomp_log`, so denied syscalls are logged rather than only killed. Use to observe a workload's real syscall set.
+- **enforce** *(default)* — the policy is applied as written; a denied syscall delivers `SIGSYS` and terminates the process (surfaces as `runtime_error`).
 
-Policies are per-language because runtimes differ: JIT/VM runtimes (Node/V8, the JVM) need `mprotect` with `PROT_EXEC` and related calls that a static C binary never makes. Author each policy against the audit-log baseline for that language before switching it to enforce.
+**Policy: deny-list with `DEFAULT ALLOW`.** Rather than an allow-list (`DEFAULT KILL` + per-language enumeration of every syscall a JVM/V8/CPython needs — brittle across runtimes and arch, and the documented way to break JIT), we `KILL` the kernel sandbox-escape surface and allow the rest:
+
+```
+ptrace, mount, pivot_root, chroot, setns, unshare,
+keyctl, add_key, request_key, bpf, perf_event_open,
+init_module, finit_module, delete_module,
+kexec_load, reboot, swapon, swapoff,
+process_vm_readv, process_vm_writev
+```
+
+This is the same shape as Docker's default profile: thread/process creation (`clone`, and `clone3` by glibc fallback), `mmap`/`mprotect(PROT_EXEC)`, `futex`, file and signal I/O all remain available, so all seven languages — including the JVM, Node/V8 and CPython, which spawn threads at startup — run unmodified, while `ptrace`, module loading, `bpf`, `kexec`, `process_vm_*` and mount/namespace manipulation are hard-blocked. The policy is defined once (a YAML anchor, `&deny_seccomp`) and shared by every language. Verified end-to-end: the differential conformance suite (`tests/conformance`) passes under enforce across all languages, and a submission that calls `ptrace` is killed (`runtime_error`) rather than succeeding.
+
+> Names not present in this build's kafel (`umount2`, `kexec_file_load`) are intentionally omitted — kafel fails the whole policy compilation on an unknown identifier, which silently disables the filter. A kafel rule list must **not** have a trailing comma after the final `}` for the same reason.
 
 ## 9. Prometheus metrics on a separate admin port
 
@@ -89,4 +102,21 @@ Operational telemetry is exposed as a Prometheus `/metrics` endpoint on a **dedi
 
 Label cardinality is bounded on purpose: series are labelled only by `language` (the fixed configured set) and `verdict` (the fixed status constants). Source hashes, request ids, and filenames are never used as labels, since unbounded label values would explode the time-series count and OOM the scrape target.
 
-Exposed series: `goboxd_runs_total{language,verdict}`, `goboxd_run_duration_seconds{language,phase=build|run}` (histogram), `goboxd_queue_wait_seconds` (histogram), `goboxd_inflight` (gauge), `goboxd_requests_total`, `goboxd_internal_errors_total`, plus the standard `go_*` / `process_*` collectors.
+Exposed series: `goboxd_runs_total{language,verdict}`, `goboxd_run_duration_seconds{language,phase=build|run}` (histogram), `goboxd_queue_wait_seconds` (histogram), `goboxd_inflight` (gauge), `goboxd_requests_total`, `goboxd_internal_errors_total`, `goboxd_queue_depth` (gauge), `goboxd_rejected_total`, `goboxd_cache_hits_total{language}`, `goboxd_cache_misses_total{language}`, `goboxd_build_wait_seconds` (histogram), plus the standard `go_*` / `process_*` collectors.
+
+## 10. Load shedding never mutates verdicts
+
+**Location:** `internal/api/handler.go`
+
+Under saturation `/run` sheds load at the door — `503 server_busy` + `Retry-After` — rather than admitting the request and degrading it. This is deliberate: a judge must never return a load-dependent verdict. The same submission must grade identically whether the server is idle or flooded, so admission control is kept strictly separate from per-run limits. We never lower `wall_time_s` or any other limit under load (the rejected "load-adaptive clamping" design); shedding only changes *whether* a request runs, never *how* it is graded.
+
+## 11. Artifact cache
+
+**Location:** `internal/artifactcache`, `internal/runner/runner.go`
+
+Compiled artifacts are cached content-addressed under `server.cache_dir` (a host-writable directory) to skip redundant recompiles. Security-relevant properties:
+
+- **Verdict-neutral.** Only the build output is reused; the run phase always executes live in a fresh jail per test, so caching cannot change a grade. Run results are never cached.
+- **Toolchain-versioned key.** The key folds in the language's smoke-probe toolchain version, so a compiler/runtime upgrade can never serve a binary built by the old toolchain. An unknown (empty) version skips the cache rather than risking a stale hit.
+- **Exec from a copy.** On a hit, cached files are copied into the request's own jail; the canonical cached file is never handed to the sandbox, and the per-run jail remains the only writable surface nsjail sees.
+- **Bounded and best-effort.** A count cap evicts the oldest entry on insert and a startup TTL sweep reclaims stale entries, so the cache dir can't grow without bound. Any IO error degrades to a normal build — the cache can never fail or block a run. Only successful builds are stored.

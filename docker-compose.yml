@@ -2,10 +2,40 @@ services:
   goboxd:
     build: .
     ports:
-      - "8080:8080"
+      - "8080:8080"   # public API
+      - "9090:9090"   # Prometheus /metrics admin port (also scraped in-network)
     privileged: true
+    # nsjail needs the host/root cgroup v2 hierarchy to create per-run child
+    # cgroups (memory.max accounting, OOM detection). Without this the sandbox
+    # falls back to --rlimit_as and memory_peak_kb reads 0.
+    cgroup: host
     volumes:
       - ./configs:/etc/goboxd:ro
     environment:
       - GOMAXPROCS=4
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    depends_on:
+      - goboxd
+    ports:
+      - "9091:9090"   # Prometheus UI on host 9091 to avoid clashing with goboxd's 9090
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
     restart: unless-stopped

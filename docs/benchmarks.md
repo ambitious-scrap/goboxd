@@ -47,3 +47,69 @@ All requests returned `200`. No `5xx`, no dropped requests.
 
 - The concurrency limit is `GOBOXD_MAX_CONCURRENCY` (default `runtime.NumCPU()`). Raising it past the CPU count trades latency for little throughput on a CPU-bound workload; lowering it tightens tail latency under burst.
 - Per-request cost is dominated by sandbox setup, not Python execution. A compiled language adds the one-time build step per request on top.
+
+---
+
+## 2026-06-09 — C-1 admission shedding + C-2 artifact cache
+
+New run after the C-1 scheduler (bounded admission + build lane) and C-2 artifact cache
+landed (commit `5a6e32d`). **The 2026-05-31 table above is kept as the pre-C-1/C-2
+baseline; this section is appended, not a replacement.**
+
+### Hardware / setup
+
+- Host: Apple M4, 10 cores, 16 GB RAM, macOS 15.7.7
+- Container host: Colima Linux VM (aarch64), 4 vCPU, 6 GB RAM, cgroup v2
+- Container: `docker run --privileged` from image `goboxd:5a6e32d`, 4 CPUs visible
+  (`GOMAXPROCS`=4), nsjail 3.4
+- Load tool: `hey`. `MaxConcurrency`=4, `MaxQueue`=8 → in-system admission cap = 12.
+- Same caveat as above: arm64 dev VM, virtualized I/O. The **shape** (cache elides the
+  build; overload sheds with 503 instead of queueing) is the portable finding.
+
+### C-2 artifact cache — C++ (`g++`, identical resubmissions)
+
+Payload: a `cpp` hello-world (`a.out`), the same source resubmitted. Cache OFF =
+`cache_enabled: false`; cache ON = default. 300 requests per level.
+
+| Concurrency | rps (cache OFF) | rps (cache ON) | p50 OFF | p50 ON | p95 OFF | p95 ON |
+|-------------|-----------------|----------------|---------|--------|---------|--------|
+| 1  | 9.5  | **347** | 104 ms | **2.8 ms**  | 110 ms | 3.4 ms  |
+| 10 | 18.8 | **903** | 529 ms | **10.5 ms** | 540 ms | 15.6 ms |
+
+- Build wall time **143 ms → replayed from `meta.json`**; the compile step is skipped on
+  a hit. ~36× throughput at c=1, p50 down ~37×.
+- `goboxd_cache_hits_total{language="cpp"}`=657, `…_misses_total`=1 across the ON sweep —
+  one cold compile, everything else served from cache.
+- Verdict identical on hit (`accepted`, same build `duration_ms` replayed) — the cache is
+  verdict-neutral. Interpreted languages (Python/Bash/JS) are unaffected: no build step,
+  cache never consulted.
+
+### C-1 admission shedding — Python (no build; cache irrelevant)
+
+Payload: the Python hello-world from the baseline. 500 requests per level.
+
+| Concurrency | 200 | 503 | p95 (admitted) | vs 2026-05-31 baseline |
+|-------------|-----|-----|----------------|------------------------|
+| 1   | 500 | 0   | 7.9 ms | was 0 err |
+| 10  | 500 | 0   | 33 ms  | was 0 err |
+| 50  | 97  | **403** | 32 ms | old: 0 err, all queued, p95 184 ms |
+| 100 | 55  | **445** | 31 ms | old: 0 err, all queued, p95 368 ms |
+
+- **Behavior changed by design.** Pre-C-1: every request queued on the semaphore
+  (unbounded goroutine parking, tail latency climbing to 368 ms at c=100). Post-C-1:
+  once in-system requests exceed `MaxConcurrency + MaxQueue` (=12), the excess gets
+  **`503` + `Retry-After: 2`** (`goboxd_rejected_total`=848 across the sweep).
+- Admitted requests keep a **flat ~32 ms p95 regardless of offered load** — the queue no
+  longer degrades everyone under burst; it serves a bounded set fast and tells the rest to
+  retry. `goboxd_queue_wait_seconds` p99 < 50 ms.
+- This is the intended backpressure (see `docs/improvements.md` C-1/C-3): verdicts stay
+  load-independent, server memory stays bounded. The new 503s are the feature, not a
+  regression — the old "0 errors under load" line came at the cost of unbounded queueing.
+
+### Reading the numbers
+
+- C-2 is a large win exactly where build dominates cost (C/C++/Java/Verilog) and a no-op
+  for interpreted languages — as designed.
+- C-1 trades "admit-and-degrade" for "shed-fast": under overload, a bounded working set
+  is served at low latency and the overflow is rejected cheaply instead of parking
+  goroutines. Tune the trade with `max_concurrency` / `max_queue`.

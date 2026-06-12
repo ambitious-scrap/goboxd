@@ -36,7 +36,7 @@ integration:
 # config). Works on macOS/Colima; no Go toolchain needed in the image.
 integration-docker: docker-build
 	GOOS=linux GOARCH=$(shell go env GOARCH) go test -c -tags integration -o bin/itest.test ./tests/
-	docker run --rm --privileged \
+	docker run --rm --privileged --cgroupns=host \
 	    -e GOBOXD_CONFIG=/etc/goboxd/languages.yaml \
 	    -v "$(PWD)/bin/itest.test:/itest.test:ro" \
 	    --entrypoint /itest.test \
@@ -57,7 +57,7 @@ docker-build: verify-nsjail
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -t goboxd:$(VERSION) .
 
 docker-run: docker-build
-	docker run --rm --privileged -p 8080:8080 goboxd:$(VERSION)
+	docker run --rm --privileged --cgroupns=host -p 8080:8080 goboxd:$(VERSION)
 
 clean:
 	rm -rf bin/

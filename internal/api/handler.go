@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -23,14 +25,26 @@ import (
 
 // Server holds all dependencies for the HTTP layer.
 type Server struct {
-	cfg       *config.Config
-	reg       *registry.Registry
-	runner    *runner.Runner
+	cfg    *config.Config
+	reg    *registry.Registry
+	runner *runner.Runner
+	// sem caps total concurrent admitted runs (MaxConcurrency). heavy further
+	// caps compiled (build != nil) jobs at MaxConcurrency-FastLaneReserved, so a
+	// burst of slow compiled jobs can never starve light interpreted jobs of
+	// admission. Acquire order is heavy-then-sem for heavy jobs; light jobs take
+	// sem only. Light never holds heavy, so the ordering cannot deadlock.
 	sem       chan struct{}
+	heavy     chan struct{}
 	metrics   *metrics.Metrics
 	smokes    map[string]registry.SmokeResult
 	buildInfo BuildInfo
 	nsjail    NsjailInfo
+	// waiting counts requests currently in the admission section (waiting for a
+	// run slot plus running). It bounds the queue: when it exceeds
+	// MaxConcurrency+maxQueue, /run sheds load with 503 rather than parking
+	// unbounded goroutines. maxQueue is the extra-waiters cap beyond running.
+	waiting  atomic.Int64
+	maxQueue int
 	// cgroupsEnabled reports whether per-run cgroup v2 memory accounting is
 	// active; false means the sandbox is on the rlimit_as fallback.
 	cgroupsEnabled bool
@@ -56,11 +70,13 @@ func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smo
 		reg:            reg,
 		runner:         r,
 		sem:            make(chan struct{}, cfg.Server.MaxConcurrency),
+		heavy:          make(chan struct{}, max(1, cfg.Server.MaxConcurrency-cfg.Server.FastLaneReserved)),
 		metrics:        metrics.New(),
 		smokes:         smokes,
 		buildInfo:      bi,
 		nsjail:         nsjail,
 		cgroupsEnabled: cgroupsEnabled,
+		maxQueue:       cfg.Server.MaxQueue,
 	}
 }
 
@@ -69,11 +85,46 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 
+	// Demo-only CORS. Off unless an exact origin is configured (env wins over
+	// config). Never "*", never enabled in production. CORS is a browser
+	// convenience, not a security boundary — the sandbox is.
+	if origin := s.demoCORSOrigin(); origin != "" {
+		r.Use(corsMiddleware(origin))
+	}
+
 	r.Get("/healthz", s.healthz)
 	r.Get("/readyz", s.readyz)
 	r.Get("/info", s.info)
 	r.Post("/run", s.run)
 	return r
+}
+
+// demoCORSOrigin returns the exact origin allowed for the standalone demo page,
+// preferring the GOBOXD_DEMO_CORS_ORIGIN env var over the config field. Empty
+// means CORS is disabled (production default).
+func (s *Server) demoCORSOrigin() string {
+	if env := os.Getenv("GOBOXD_DEMO_CORS_ORIGIN"); env != "" {
+		return env
+	}
+	return s.cfg.Server.DemoCORSOrigin
+}
+
+// corsMiddleware emits CORS headers for the single configured origin and answers
+// preflight OPTIONS with 204. Demo-only; not a security control.
+func corsMiddleware(origin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // MetricsHandler returns the Prometheus /metrics handler. It is served on a
@@ -254,8 +305,39 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	}
 	runLimits := limits.Merge(lang.Run.Limits, runOverride)
 
+	// Bounded admission. Count this request as in-system, and shed load when the
+	// queue is saturated (running set plus the extra-waiters cap) instead of
+	// parking an unbounded goroutine. This is pure traffic control — it never
+	// mutates per-run limits, so verdicts stay load-independent.
+	n := s.waiting.Add(1)
+	defer s.waiting.Add(-1)
+	s.metrics.QueueDepth.Inc()
+	defer s.metrics.QueueDepth.Dec()
+
+	if s.maxQueue > 0 && int(n) > s.cfg.Server.MaxConcurrency+s.maxQueue {
+		w.Header().Set("Retry-After", "2")
+		s.metrics.RejectedTotal.Inc()
+		writeError(w, http.StatusServiceUnavailable, "server_busy", "queue full, retry shortly")
+		return
+	}
+
 	// Acquire concurrency slot (block until available or context cancelled).
+	// Compiled (build != nil) jobs first take a heavy-lane token, capped below
+	// MaxConcurrency, so they can never occupy the slots reserved for light
+	// interpreted jobs. Order is heavy-then-sem; light jobs skip the heavy lane.
+	// Light jobs never hold heavy, so the lock order cannot deadlock.
+	lane := "light"
 	waitStart := time.Now()
+	if lang.Build != nil {
+		lane = "heavy"
+		select {
+		case s.heavy <- struct{}{}:
+			defer func() { <-s.heavy }()
+		case <-ctx.Done():
+			writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for slot")
+			return
+		}
+	}
 	select {
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()
@@ -263,7 +345,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for slot")
 		return
 	}
-	s.metrics.QueueWait.Observe(time.Since(waitStart).Seconds())
+	s.metrics.QueueWait.WithLabelValues(lane).Observe(time.Since(waitStart).Seconds())
 
 	obs.InFlight.Add(1)
 	obs.TotalRequests.Add(1)
@@ -291,6 +373,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		NsjailPath:       s.cfg.Server.NsjailPath,
 		OutputCap:        s.cfg.Server.OutputCapBytes,
 		SeccompMode:      s.cfg.Server.SeccompMode,
+		ToolchainVersion: s.smokes[lang.ID].Version,
 	})
 	if err != nil {
 		obs.TotalErrors.Add(1)
@@ -306,6 +389,13 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	buildSeconds := -1.0
 	if lang.Build != nil {
 		buildSeconds = float64(result.BuildDurationMs) / 1000
+		s.metrics.BuildWait.Observe(float64(result.BuildWaitMs) / 1000)
+		switch result.CacheStatus {
+		case "hit":
+			s.metrics.CacheHits.WithLabelValues(req.Language).Inc()
+		case "miss":
+			s.metrics.CacheMisses.WithLabelValues(req.Language).Inc()
+		}
 	}
 	runSeconds := make([]float64, len(result.Tests))
 	for i, tr := range result.Tests {

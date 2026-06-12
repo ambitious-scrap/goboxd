@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thesouldev/goboxd/internal/api"
 	"github.com/thesouldev/goboxd/internal/config"
@@ -91,11 +93,43 @@ func newTestServer(t *testing.T, results ...*sandbox.Result) http.Handler {
 		},
 	}
 	reg := registry.New(testLangs())
-	r := runner.NewWithSandbox(&fakeSandbox{results: results}, cfg.Server.JailBase, cfg.Server.OutputCapBytes)
+	r := runner.NewWithSandbox(&fakeSandbox{results: results}, cfg.Server.JailBase, cfg.Server.OutputCapBytes, 0, nil)
 	smokes := map[string]registry.SmokeResult{"py3": {OK: true}}
 	nsjail := api.NsjailInfo{OK: true, Version: "nsjail test"}
 	srv := api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"}, nsjail, true)
 	return srv.Router()
+}
+
+// blockingSandbox blocks every Run until release is closed, so requests can be
+// pinned in-system to saturate the admission queue deterministically.
+type blockingSandbox struct{ release chan struct{} }
+
+func (b *blockingSandbox) Run(_ context.Context, _ sandbox.RunConfig) (*sandbox.Result, error) {
+	<-b.release
+	return &sandbox.Result{ExitCode: 0, Stdout: "hi\n"}, nil
+}
+
+// newServerWith builds a server with explicit concurrency/queue limits and a
+// caller-supplied sandbox, for admission-control tests.
+func newServerWith(t *testing.T, sb runner.SandboxRunner, maxConc, maxQueue int) *api.Server {
+	t.Helper()
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			MaxConcurrency: maxConc,
+			MaxQueue:       maxQueue,
+			MaxBodyBytes:   1 << 20,
+			MaxSourceBytes: 1 << 18,
+			MaxTests:       100,
+			JailBase:       t.TempDir(),
+			NsjailPath:     "/unused",
+			OutputCapBytes: 65536,
+		},
+	}
+	reg := registry.New(testLangs())
+	r := runner.NewWithSandbox(sb, cfg.Server.JailBase, cfg.Server.OutputCapBytes, 0, nil)
+	smokes := map[string]registry.SmokeResult{"py3": {OK: true}}
+	nsjail := api.NsjailInfo{OK: true, Version: "nsjail test"}
+	return api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"}, nsjail, true)
 }
 
 func post(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {
@@ -105,6 +139,104 @@ func post(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// gateSandbox signals each Run entry on entered, then blocks until release is
+// closed — letting a test observe exactly which requests cleared admission.
+type gateSandbox struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gateSandbox) Run(_ context.Context, _ sandbox.RunConfig) (*sandbox.Result, error) {
+	g.entered <- struct{}{}
+	<-g.release
+	return &sandbox.Result{ExitCode: 0, Stdout: "hi\n"}, nil
+}
+
+// newServerWithFastLane is newServerWith plus an explicit fast-lane reservation.
+func newServerWithFastLane(t *testing.T, sb runner.SandboxRunner, maxConc, maxQueue, reserved int) *api.Server {
+	t.Helper()
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			MaxConcurrency:   maxConc,
+			MaxQueue:         maxQueue,
+			FastLaneReserved: reserved,
+			MaxBodyBytes:     1 << 20,
+			MaxSourceBytes:   1 << 18,
+			MaxTests:         100,
+			JailBase:         t.TempDir(),
+			NsjailPath:       "/unused",
+			OutputCapBytes:   65536,
+		},
+	}
+	reg := registry.New(testLangs())
+	r := runner.NewWithSandbox(sb, cfg.Server.JailBase, cfg.Server.OutputCapBytes, 0, nil)
+	smokes := map[string]registry.SmokeResult{"py3": {OK: true}}
+	nsjail := api.NsjailInfo{OK: true, Version: "nsjail test"}
+	return api.NewServer(cfg, reg, r, smokes, api.BuildInfo{Version: "test"}, nsjail, true)
+}
+
+// waitEntries blocks until n values arrive on ch or the deadline elapses.
+func waitEntries(ch <-chan struct{}, n int, d time.Duration) bool {
+	deadline := time.After(d)
+	for i := 0; i < n; i++ {
+		select {
+		case <-ch:
+		case <-deadline:
+			return false
+		}
+	}
+	return true
+}
+
+// Heavy (compiled) jobs must not starve light (interpreted) jobs of admission:
+// the fast-lane reservation keeps slots open for light requests even when the
+// heavy lane is saturated.
+func TestRun_FastLaneAdmitsLightUnderHeavySaturation(t *testing.T) {
+	gate := &gateSandbox{entered: make(chan struct{}, 8), release: make(chan struct{})}
+	defer close(gate.release)
+
+	// maxConc=2, reserved=1 => heavy lane capped at 1; one slot stays open for light.
+	srv := newServerWithFastLane(t, gate, 2, 16, 1)
+	h := srv.Router()
+
+	cpp := `{"language":"cpp","source":"int main(){}","tests":[{"stdin":"","expected_stdout":"hi\n"}]}`
+	py := `{"language":"py3","source":"print(1)","tests":[{"stdin":"","expected_stdout":"hi\n"}]}`
+	fire := func(body string) {
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/run", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			h.ServeHTTP(httptest.NewRecorder(), req)
+		}()
+	}
+
+	// Two heavy jobs; the heavy lane (cap 1) admits exactly one into the sandbox.
+	fire(cpp)
+	fire(cpp)
+	if !waitEntries(gate.entered, 1, 2*time.Second) {
+		t.Fatal("no heavy job entered the sandbox")
+	}
+
+	// A light job must still clear admission via the reserved slot.
+	fire(py)
+	if !waitEntries(gate.entered, 1, 2*time.Second) {
+		t.Fatal("light job blocked behind saturated heavy lane; fast-lane reservation not working")
+	}
+}
+
+// A reservation larger than the pool must clamp the heavy lane to >=1 so
+// compiled jobs still run instead of deadlocking on a zero-capacity lane.
+func TestRun_FastLaneOverReservationNoDeadlock(t *testing.T) {
+	sb := &fakeSandbox{results: []*sandbox.Result{{ExitCode: 0}, {ExitCode: 0, Stdout: "ok\n"}}}
+	srv := newServerWithFastLane(t, sb, 1, 4, 5) // reserved > maxConc
+	rec := post(t, srv.Router(), `{"language":"cpp","source":"int main(){}","tests":[{"stdin":"","expected_stdout":"ok\n"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"accepted"`) {
+		t.Errorf("body = %s", rec.Body.String())
+	}
 }
 
 func TestHealthz(t *testing.T) {
@@ -297,6 +429,90 @@ func TestRun_TooManyTests(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "too_many_tests") {
 		t.Errorf("body = %s", rec.Body.String())
 	}
+}
+
+// Under saturation the excess requests must be shed with 503 + Retry-After and
+// counted in rejected_total, while the admitted set stays bounded. The queue
+// depth gauge must reflect the pinned in-system requests.
+func TestRun_QueueShedsWhenSaturated(t *testing.T) {
+	const (
+		maxConc  = 1
+		maxQueue = 1
+		fired    = 6
+	)
+	// Admission cap is maxConc+maxQueue = 2; the other 4 must be rejected.
+	const wantRejected = fired - (maxConc + maxQueue)
+
+	sb := &blockingSandbox{release: make(chan struct{})}
+	srv := newServerWith(t, sb, maxConc, maxQueue)
+	h := srv.Router()
+	body := `{"language":"py3","source":"print(1)","tests":[{"stdin":"","expected_stdout":"hi\n"}]}`
+
+	codes := make(chan int, fired)
+	for i := 0; i < fired; i++ {
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/run", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			codes <- rec.Code
+			if rec.Code == http.StatusServiceUnavailable {
+				if rec.Header().Get("Retry-After") == "" {
+					t.Errorf("503 response missing Retry-After header")
+				}
+			}
+		}()
+	}
+
+	// The rejected requests return immediately; the admitted ones block on the
+	// sandbox until released. Collect exactly the rejections first.
+	for i := 0; i < wantRejected; i++ {
+		if code := <-codes; code != http.StatusServiceUnavailable {
+			t.Errorf("rejection %d: code = %d, want 503", i, code)
+		}
+	}
+
+	// While the admitted requests are pinned, the queue-depth gauge reflects
+	// them and rejected_total counts the shed load.
+	scrape := scrapeMetrics(t, srv)
+	if got := metricValue(scrape, "goboxd_rejected_total"); got < wantRejected {
+		t.Errorf("goboxd_rejected_total = %v, want >= %d", got, wantRejected)
+	}
+	if got := metricValue(scrape, "goboxd_queue_depth"); got < float64(maxConc+maxQueue) {
+		t.Errorf("goboxd_queue_depth = %v, want >= %d", got, maxConc+maxQueue)
+	}
+
+	// Release the admitted requests so they finish (200).
+	close(sb.release)
+	for i := 0; i < maxConc+maxQueue; i++ {
+		if code := <-codes; code != http.StatusOK {
+			t.Errorf("admitted request: code = %d, want 200", code)
+		}
+	}
+}
+
+func scrapeMetrics(t *testing.T, srv *api.Server) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	srv.MetricsHandler().ServeHTTP(rec, req)
+	return rec.Body.String()
+}
+
+// metricValue returns the value of a single (unlabelled) metric sample, or -1 if
+// absent.
+func metricValue(scrape, name string) float64 {
+	for _, line := range strings.Split(scrape, "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == name {
+			if v, err := strconv.ParseFloat(fields[1], 64); err == nil {
+				return v
+			}
+		}
+	}
+	return -1
 }
 
 func TestReadyz_IncludesNsjail(t *testing.T) {

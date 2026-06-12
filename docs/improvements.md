@@ -104,6 +104,14 @@ directionally good; three items need correction (one is unsafe as written, one i
 spec-violating, one under-specifies its cache key).
 
 ### C-1. Shortest-Job-First scheduling with starvation aging
+**Status: DONE** (bounded admission + build lane). Shipped the "two classes / explicit
+build cap" improvement below, not the rejected min-heap. `/run` now bounds the queue
+(`waiting` atomic + `goboxd_queue_depth`) and sheds excess with `503 + Retry-After` when
+in-system requests exceed `MaxConcurrency + MaxQueue` (`internal/api/handler.go`); a
+separate `buildSem` of size `MaxBuildConcurrency` caps concurrent compiles below the
+run-slot count (`internal/runner/runner.go`). No limit mutation; verdicts unchanged.
+SJF/EMA priority reordering remains deferred (no job-size signal).
+
 **Memo:** replace the FIFO semaphore with a min-heap priority queue; cost =
 `wall_time × (1 + mem_GB) × test_count`; subtract `wait_seconds × multiplier` for aging.
 
@@ -129,6 +137,13 @@ Improvements:
   of the class split.
 
 ### C-2. Compiler & artifact caching
+**Status: DONE** (artifact cache). New `internal/artifactcache`: content-addressed,
+toolchain-versioned key, caches the build artifact only (never run results), copies into
+a fresh jail on hit and replays the build output, single-flight per key, count-cap
+eviction + startup TTL sweep, graceful degradation to a miss on any IO error. Negative-
+caching of build failures is deferred (keeps the model trivially verdict-safe); the user
+chose artifact-only over a full result cache.
+
 **Memo:** hash source + flags, store compiled artifact under `/tmp/goboxd/cache/`, skip
 build on hash hit.
 
@@ -235,3 +250,30 @@ saturation, resource distributions, and verdict-type breakdown.
 | 4 | seccomp/kafel | Keep | per-language policies (JITs need more); wider deny set; audit-mode first |
 | 5 | cgroup `cpu.max` | Keep (real gap) | sub-core quota inflates wall time → grade on cpu-time; also add cgroup `pids.max` |
 | 6 | Prometheus | Keep | cap label cardinality; admin-only port; add cache-hit + queue-wait metrics |
+
+---
+
+## Follow-up notes (appended 2026-06-09, post-merge review of `5a6e32d`)
+
+Local review of the shipped C-1/C-2 code (build/vet/test all green, 73/73). Two
+best-effort behaviors worth a future hardening pass — **neither affects verdicts or blocks
+the feature**; recorded here so they aren't lost:
+
+1. **Artifact-cache single-flight lock is not context-cancellable.**
+   `Cache.Lock(key)` (`internal/artifactcache/artifactcache.go`) returns a release fn, and
+   `buildPhase` holds it across `get → build → put`. A second identical submission that
+   arrives while the first compiles blocks on `kl.mu.Lock()`, which ignores `ctx` — a client
+   that cancels mid-wait won't unblock until the in-flight compile finishes. Bounded by the
+   build step's `wall_time_s` (30 s default), so the blast radius is small. Future fix:
+   `TryLock` + `select` on `ctx.Done()`, or a per-key `chan` the waiter can select on.
+
+2. **`evict()` runs under the per-key lock only, not a cache-wide lock.**
+   On `Put`, `evict()` scans the whole cache dir and `RemoveAll`s the oldest entries. Two
+   concurrent `Put`s on *different* keys can race each other's `rename`/`RemoveAll`. Worst
+   case: an entry is evicted immediately after being committed → the next identical request
+   is a miss and recompiles. No corruption (rename is atomic; a half-state degrades to a
+   miss). Acceptable for a best-effort cache; revisit with a cache-wide eviction lock only
+   if hit-ratio metrics show churn.
+
+Both are consistent with the design intent ("all cache IO errors degrade to a miss"); they
+are logged as known limitations, not bugs.

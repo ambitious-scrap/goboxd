@@ -94,6 +94,14 @@ func TestBuildNsjailArgs_CgroupVsRlimit(t *testing.T) {
 	if has(noCg, "--use_cgroupv2") {
 		t.Error("should not use cgroup when unavailable")
 	}
+
+	// cgroup unavailable, VM language: --rlimit_as must be omitted to let the VM start.
+	cfgVM := cfg
+	cfgVM.Cmd = "/usr/bin/node"
+	noCgVM := buildNsjailArgs(cfgVM, &cgroup{ok: false})
+	if has(noCgVM, "--rlimit_as") {
+		t.Error("expected --rlimit_as to be omitted for VM runtimes")
+	}
 }
 
 func TestBuildNsjailArgs_Seccomp(t *testing.T) {

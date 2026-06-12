@@ -1,0 +1,11 @@
+# Prometheus scrape config for the goboxd compose stack.
+# goboxd serves Prometheus metrics on its admin port :9090 (separate from the
+# public API on :8080). See cmd/goboxd/main.go and internal/metrics.
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+
+scrape_configs:
+  - job_name: goboxd
+    static_configs:
+      - targets: ["goboxd:9090"]

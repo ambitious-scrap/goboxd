@@ -6,17 +6,58 @@ server:
   jail_base: /tmp/goboxd
   nsjail_path: /usr/local/bin/nsjail
   output_cap_bytes: 65536
+  # Admission control (C-1). max_queue bounds requests waiting beyond the running
+  # set: when in-system requests exceed max_concurrency + max_queue, /run sheds
+  # load with 503 + Retry-After rather than parking unbounded goroutines. This is
+  # pure traffic control — it never mutates per-run limits, so verdicts stay
+  # load-independent. Default: 2 * max_concurrency.
+  # max_queue: 0
+  # max_build_concurrency caps concurrent compile steps below max_concurrency, so
+  # a flood of heavy compiles can't starve light interpreted runs. 0 or a value
+  # >= max_concurrency disables the separate lane. Default: max(1, max_concurrency/2).
+  # max_build_concurrency: 0
+  # fast_lane_reserved reserves this many of the max_concurrency run slots for
+  # light (interpreted, no build step) jobs, so a burst of slow compiled jobs
+  # can never starve them of admission. Heavy compiled jobs are capped at
+  # max_concurrency - fast_lane_reserved. Pure admission ordering — verdicts stay
+  # load-independent. 0 disables. Default: max(1, max_concurrency/4), clamped so
+  # heavy jobs keep >= 1 slot.
+  # fast_lane_reserved: 0
+  # Artifact cache (C-2): reuse the compiled output of identical submissions
+  # (same source + flags + toolchain version). Verdict-neutral — only the build
+  # step is reused; the run phase still executes live per test. The key includes
+  # the toolchain version, so a compiler bump never serves a stale binary.
+  cache_enabled: true
+  cache_dir: /tmp/goboxd-cache
+  cache_max_entries: 512
   # seccomp-bpf syscall filtering: off | audit | enforce.
-  # off     = no filter (default). audit = load each language's seccomp_policy
-  # and add --seccomp_log (observe, don't kill — pair with a permissive policy
-  # default). enforce = apply the policy as written. A language without a
-  # seccomp_policy is never filtered. See docs/security.md.
-  seccomp_mode: "off"
+  # enforce = apply each language's seccomp_policy as written (default; a denied
+  # syscall delivers SIGSYS -> runtime_error). audit = also add --seccomp_log so
+  # violations are logged. off = no filter. A language without a seccomp_policy is
+  # never filtered. The shared &deny_seccomp anchor (below) is a DEFAULT ALLOW
+  # deny-list killing the kernel escape surface. See docs/security.md §8.
+  seccomp_mode: "enforce"
 
 languages:
   - id: py3
     name: Python 3
     source_filename: solution.py
+    # Shared deny-list seccomp-bpf filter (kafel). DEFAULT ALLOW keeps JIT/threaded
+    # runtimes (JVM, V8, CPython) working; only the kernel sandbox-escape surface is
+    # killed. clone3 returns ENOSYS so glibc falls back to clone() for pthreads
+    # (same technique as Docker's default profile). Anchored here, aliased by every
+    # other language so the policy is defined once.
+    seccomp_policy: &deny_seccomp |
+      POLICY goboxd {
+        KILL {
+          ptrace, mount, pivot_root, chroot, setns, unshare,
+          keyctl, add_key, request_key, bpf, perf_event_open,
+          init_module, finit_module, delete_module,
+          kexec_load, reboot, swapon, swapoff,
+          process_vm_readv, process_vm_writev
+        }
+      }
+      USE goboxd DEFAULT ALLOW
     run:
       cmd: /usr/bin/python3
       args: ["{{source}}"]
@@ -31,6 +72,7 @@ languages:
   - id: c
     name: C
     source_filename: solution.c
+    seccomp_policy: *deny_seccomp
     artifact: a.out
     build:
       cmd: /usr/bin/gcc
@@ -47,6 +89,7 @@ languages:
         - "-Wall"
         - "-Wextra"
         - "-std=*"
+        - "--std=*"
         - "-g"
         - "-lm"
     run:
@@ -63,6 +106,7 @@ languages:
   - id: cpp
     name: C++
     source_filename: solution.cpp
+    seccomp_policy: *deny_seccomp
     artifact: a.out
     build:
       cmd: /usr/bin/g++
@@ -79,6 +123,7 @@ languages:
         - "-Wall"
         - "-Wextra"
         - "-std=*"
+        - "--std=*"
         - "-g"
     run:
       cmd: ./{{artifact}}
@@ -94,6 +139,7 @@ languages:
   - id: java
     name: Java
     source_filename: "{{source_filename}}"
+    seccomp_policy: *deny_seccomp
     artifact: "{{artifact_filename}}"
     source_filename_strategy: from_request
     artifact_filename_strategy: from_request
@@ -123,6 +169,7 @@ languages:
   - id: bash
     name: Bash
     source_filename: solution.sh
+    seccomp_policy: *deny_seccomp
     run:
       cmd: /bin/bash
       args: ["{{source}}"]
@@ -137,6 +184,7 @@ languages:
   - id: javascript
     name: JavaScript (Node)
     source_filename: solution.js
+    seccomp_policy: *deny_seccomp
     run:
       cmd: /usr/bin/node
       args: ["{{source}}"]
@@ -151,6 +199,7 @@ languages:
   - id: verilog
     name: Verilog
     source_filename: solution.v
+    seccomp_policy: *deny_seccomp
     artifact: a.out
     build:
       cmd: /usr/bin/iverilog

@@ -7,6 +7,10 @@
 # Private AI development journals — kept local, not version-controlled
 /docs/ai/
 
+# Personal prep / private notes — kept local, not version-controlled
+/PERSONAL_README.md
+/docs/INTERVIEW_PREP.md
+
 # Agent tooling artifacts — kept local, not version-controlled
 /.codex/
 /AGENTS.md
@@ -30,3 +34,21 @@
 
 # graphify knowledge-graph artifacts — generated, kept local
 /graphify-out/
+
+# Claude Code session/tooling artifacts — kept local
+/.claude/
+/.github/skills/
+
+# Serena tooling — kept local
+/.serena/
+
+# Reference implementation + its fixtures — provided locally for the differential
+# conformance test (tests/conformance), deliberately not bundled in this repo.
+/pyjail/
+/pyjail-old/
+
+# Generated go fuzz corpus (seed inputs live in *_test.go via f.Add).
+**/testdata/fuzz/
+
+# Local validation/benchmark run logs & reports — generated, kept local
+/validation-logs/

@@ -204,7 +204,11 @@ func buildNsjailArgs(cfg RunConfig, cg *cgroup) []string {
 		// runtimes (Node/V8, the JVM) reserve far more virtual memory than they ever
 		// make resident, so an rlimit_as set to the RSS budget makes them fail to
 		// start. Use it only when no cgroup is available to do the accounting.
-		args = append(args, "--rlimit_as", strconv.FormatInt(memMiB, 10)) // MiB
+		// For VM-based runtimes, we skip --rlimit_as entirely to let them start.
+		isVM := strings.Contains(cfg.Cmd, "node") || strings.Contains(cfg.Cmd, "java") || strings.Contains(cfg.Cmd, "javac")
+		if !isVM {
+			args = append(args, "--rlimit_as", strconv.FormatInt(memMiB, 10)) // MiB
+		}
 	}
 	for _, dir := range systemBindMounts {
 		// Skip missing sources; nsjail aborts the jail if a bind source doesn't exist.

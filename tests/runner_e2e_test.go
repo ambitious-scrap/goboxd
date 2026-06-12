@@ -54,7 +54,7 @@ var cpp = &config.Language{
 }
 
 func newRunner(results ...*sandbox.Result) *runner.Runner {
-	return runner.NewWithSandbox(&fakeSandbox{results: results}, os.TempDir(), 65536)
+	return runner.NewWithSandbox(&fakeSandbox{results: results}, os.TempDir(), 65536, 0, nil)
 }
 
 func TestPy3_Accepted(t *testing.T) {
