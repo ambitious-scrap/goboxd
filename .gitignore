@@ -10,3 +10,6 @@
 # Agent tooling artifacts — kept local, not version-controlled
 /.codex/
 /AGENTS.md
+
+# Local handoff notes — not version-controlled
+/handoff.md
