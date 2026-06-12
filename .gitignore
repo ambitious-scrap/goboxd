@@ -17,3 +17,6 @@
 # Judging fixtures + OS cruft — kept local
 /payloads/
 .DS_Store
+
+# Stage 3 Design and Rationale doc (ignored per user request)
+/docs/DESIGN_AND_RATIONALE.md
