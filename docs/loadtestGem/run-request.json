@@ -1,0 +1,12 @@
+{
+  "language": "java",
+  "source_filename": "MemoryHog.java",
+  "artifact_filename": "MemoryHog",
+  "source": "public class MemoryHog {\n    public static void main(String[] args) throws InterruptedException {\n        final int megabytes = readSize();\n        final int blockSize = 1 << 20; // 1 MB per block\n        final byte[][] blocks = new byte[megabytes][];\n\n        long checksum = 0;\n\n        // Allocate and touch every page so the pages are actually committed to RSS.\n        for (int i = 0; i < megabytes; i++) {\n            byte[] block = new byte[blockSize];\n            for (int j = 0; j < blockSize; j += 4096) {\n                block[j] = (byte) (i * 31 + j);\n                checksum += block[j];\n            }\n            blocks[i] = block;\n        }\n\n        // Light CPU pass so a run is not pure allocation.\n        for (byte[] block : blocks) {\n            for (int j = 0; j < block.length; j += 512) {\n                checksum += block[j];\n            }\n        }\n\n        // Hold the memory resident for a moment so concurrent runs pile up.\n        Thread.sleep(1000);\n\n        // Deterministic output proves the run actually completed.\n        System.out.println(\"MemoryHog OK mb=\" + megabytes + \" checksum=\" + checksum);\n    }\n\n    private static int readSize() {\n        String env = System.getenv(\"MEMHOG_MB\");\n        if (env != null && !env.isEmpty()) {\n            try {\n                return Integer.parseInt(env.trim());\n            } catch (NumberFormatException ignored) {\n            }\n        }\n        return 150;\n    }\n}\n",
+  "tests": [
+    {
+      "stdin": "",
+      "expected_stdout": "MemoryHog OK mb=150 checksum=-101888\\n"
+    }
+  ]
+}

@@ -1,11 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -35,6 +38,7 @@ type Server struct {
 	// sem only. Light never holds heavy, so the ordering cannot deadlock.
 	sem       chan struct{}
 	heavy     chan struct{}
+	limiter   *AdaptiveLimiter
 	metrics   *metrics.Metrics
 	smokes    map[string]registry.SmokeResult
 	buildInfo BuildInfo
@@ -71,6 +75,7 @@ func NewServer(cfg *config.Config, reg *registry.Registry, r *runner.Runner, smo
 		runner:         r,
 		sem:            make(chan struct{}, cfg.Server.MaxConcurrency),
 		heavy:          make(chan struct{}, max(1, cfg.Server.MaxConcurrency-cfg.Server.FastLaneReserved)),
+		limiter:        NewAdaptiveLimiter(int32(cfg.Server.MaxConcurrency), 64),
 		metrics:        metrics.New(),
 		smokes:         smokes,
 		buildInfo:      bi,
@@ -199,18 +204,50 @@ type testOut struct {
 	MemPeakKB  int64  `json:"memory_peak_kb"`
 }
 
+var requestPool = sync.Pool{
+	New: func() interface{} {
+		return &runRequest{}
+	},
+}
+
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
+
 func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	ctx := obs.WithRequestID(r.Context(), middleware.GetReqID(r.Context()))
 
 	r.Body = http.MaxBytesReader(w, r.Body, int64(s.cfg.Server.MaxBodyBytes))
 
-	var req runRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer bufferPool.Put(buf)
+
+	if _, err := io.Copy(buf, r.Body); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			writeError(w, http.StatusBadRequest, "request_too_large", "request body exceeds maximum allowed size")
 			return
 		}
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	req := requestPool.Get().(*runRequest)
+	defer func() {
+		req.Language = ""
+		req.Source = ""
+		req.SourceFilename = ""
+		req.ArtifactFilename = ""
+		req.Build = nil
+		req.Run = nil
+		req.Tests = nil
+		requestPool.Put(req)
+	}()
+
+	if err := json.Unmarshal(buf.Bytes(), req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
@@ -314,7 +351,8 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	s.metrics.QueueDepth.Inc()
 	defer s.metrics.QueueDepth.Dec()
 
-	if s.maxQueue > 0 && int(n) > s.cfg.Server.MaxConcurrency+s.maxQueue {
+	currentLimit := s.limiter.Limit()
+	if s.maxQueue > 0 && int(n) > currentLimit+s.maxQueue {
 		w.Header().Set("Retry-After", "2")
 		s.metrics.RejectedTotal.Inc()
 		writeError(w, http.StatusServiceUnavailable, "server_busy", "queue full, retry shortly")
@@ -338,13 +376,12 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	select {
-	case s.sem <- struct{}{}:
-		defer func() { <-s.sem }()
-	case <-ctx.Done():
+	acquired := s.limiter.Acquire(ctx)
+	if !acquired {
 		writeError(w, http.StatusServiceUnavailable, "server_busy", "request cancelled while waiting for slot")
 		return
 	}
+	defer s.limiter.Release()
 	s.metrics.QueueWait.WithLabelValues(lane).Observe(time.Since(waitStart).Seconds())
 
 	obs.InFlight.Add(1)
@@ -359,6 +396,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		tcs[i] = runner.TestCase{Stdin: tc.Stdin, Expected: tc.ExpectedOutput}
 	}
 
+	runStart := time.Now()
 	result, err := s.runner.Execute(ctx, runner.RunRequest{
 		Language:         lang,
 		Source:           req.Source,
@@ -383,6 +421,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "execution engine error")
 		return
 	}
+	s.limiter.RecordSuccess(time.Since(runStart).Milliseconds())
 
 	// Record metrics: build phase (only when the language builds) + one run
 	// observation per test, plus the verdict counter.
